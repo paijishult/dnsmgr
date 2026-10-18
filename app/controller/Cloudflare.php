@@ -1170,6 +1170,10 @@ class Cloudflare extends BaseController
     {
         $name = trim((string)($account['name'] ?? ''));
         $remark = trim((string)($account['remark'] ?? ''));
+        if (!empty(request()->isApi)) {
+            // API调用时不输出账户名称（可能是邮箱或令牌），只用备注/ID标识
+            return $remark !== '' ? $remark : ('Cloudflare账户#' . ($account['id'] ?? ''));
+        }
         if ($remark !== '') {
             return $remark . ' (' . $name . ')';
         }

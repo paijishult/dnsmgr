@@ -5,7 +5,7 @@ CREATE TABLE `dnsmgr_config` (
   PRIMARY KEY (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `dnsmgr_config` VALUES ('version', '1050');
+INSERT INTO `dnsmgr_config` VALUES ('version', '1051');
 INSERT INTO `dnsmgr_config` VALUES ('notice_mail', '0');
 INSERT INTO `dnsmgr_config` VALUES ('notice_wxtpl', '0');
 INSERT INTO `dnsmgr_config` VALUES ('mail_smtp', 'smtp.qq.com');
@@ -297,4 +297,34 @@ CREATE TABLE `dnsmgr_apikey` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `keyid` (`keyid`),
   KEY `uid` (`uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+DROP TABLE IF EXISTS `dnsmgr_audit`;
+CREATE TABLE `dnsmgr_audit` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `source` varchar(10) NOT NULL DEFAULT 'web',
+  `uid` int(11) unsigned NOT NULL DEFAULT '0',
+  `username` varchar(64) DEFAULT NULL,
+  `kid` int(11) unsigned NOT NULL DEFAULT '0',
+  `keyid` varchar(24) DEFAULT NULL,
+  `kname` varchar(64) DEFAULT NULL,
+  `ip` varchar(64) DEFAULT NULL,
+  `ua` varchar(255) DEFAULT NULL,
+  `method` varchar(8) DEFAULT NULL,
+  `path` varchar(255) DEFAULT NULL,
+  `name` varchar(64) DEFAULT NULL,
+  `target` varchar(255) DEFAULT NULL,
+  `params` mediumtext DEFAULT NULL,
+  `status` smallint(5) unsigned NOT NULL DEFAULT '200',
+  `result` tinyint(1) NOT NULL DEFAULT '1',
+  `code` int(11) DEFAULT NULL,
+  `msg` varchar(500) DEFAULT NULL,
+  `duration` int(11) unsigned NOT NULL DEFAULT '0',
+  `addtime` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `addtime` (`addtime`),
+  KEY `source` (`source`,`addtime`),
+  KEY `kid` (`kid`),
+  KEY `uid` (`uid`),
+  KEY `ip` (`ip`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -5,6 +5,7 @@ declare (strict_types=1);
 namespace app\middleware;
 
 use app\lib\ApiKeyHelper;
+use app\lib\AuditHelper;
 use Exception;
 use think\facade\Cache;
 use think\facade\Db;
@@ -26,6 +27,7 @@ class AuthApi
         $failKey = 'apifail_' . md5((string)$ip);
         $fail = Cache::get($failKey);
         if (is_array($fail) && $fail['n'] >= self::FAIL_LIMIT && $fail['t'] > time() - self::FAIL_WINDOW) {
+            $request->auditApiDenied = true;
             return json(['code' => -1, 'msg' => '认证失败次数过多，请' . ceil(self::FAIL_WINDOW / 60) . '分钟后再试'])->code(429);
         }
 
@@ -35,9 +37,11 @@ class AuthApi
         $keyid = is_string($keyid) ? trim($keyid) : '';
         $uid = input('post.uid/d');
         if ((!$uid && $keyid === '') || empty($timestamp) || empty($sign) || !is_numeric($timestamp)) {
+            $request->auditApiDenied = true;
             return json(['code' => -1, 'msg' => '认证参数不能为空'])->code(403);
         }
         if ($timestamp < time() - 300 || $timestamp > time() + 300) {
+            $request->auditApiDenied = true;
             return json(['code' => -1, 'msg' => '时间戳不合法'])->code(403);
         }
 
@@ -49,6 +53,7 @@ class AuthApi
         if ($result !== true) {
             [$status, $msg, $countFail] = $result;
             if ($countFail) $this->recordFail($failKey, $fail);
+            if ($status != 404) $request->auditApiDenied = true;
             return json(['code' => -1, 'msg' => $msg])->code($status);
         }
 
@@ -57,6 +62,7 @@ class AuthApi
 
         // 列表接口的分页参数：后台表格总会传递，API调用时可省略（默认 offset=0, limit=20，单次最多1000条）
         $post = $request->post();
+        $request->auditOriginalPost = $post;
         $offset = $post['offset'] ?? null;
         $limit = $post['limit'] ?? null;
         $post['offset'] = is_numeric($offset) && $offset >= 0 ? (string)intval($offset) : '0';
@@ -69,6 +75,16 @@ class AuthApi
         $request->withPost($post);
 
         $response = $next($request);
+
+        // 安全兜底：API返回内容中如果出现系统里保存的任何密钥值（账户密钥、用户API密钥、系统密钥等），一律替换为 ******
+        try {
+            $content = $response->getContent();
+            if (is_string($content) && $content !== '') {
+                $scrubbed = AuditHelper::scrub($content, AuditHelper::apiScrubValues());
+                if ($scrubbed !== $content) $response->content($scrubbed);
+            }
+        } catch (\Throwable $e) {
+        }
         return $response->header(empty($request->apiKey) ? [] : ($request->apiRateHeaders ?? []));
     }
 

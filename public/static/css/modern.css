@@ -469,6 +469,36 @@ pre.code { background: #1d1d1f; color: #e8e8ed; border: 0; border-radius: var(--
 .secret-grid .k { color: var(--zn-text-2); font-size: 13px; font-weight: 500; }
 .secret-grid .v { font-family: var(--zn-mono); font-size: 14px; background: #f5f5f7; color: var(--zn-text); border-radius: 10px; padding: 10px 14px; word-break: break-all; user-select: all; box-shadow: 0 0 0 1px var(--zn-line-soft) inset; }
 
+/* ============ 审计日志 ============ */
+.zn-stat.is-red .fa { background: linear-gradient(180deg, #ff6961, #ff3b30); }
+.audit-overview .zn-stat-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audit-retain { font-size: 12.5px; margin-left: 10px; }
+.audit-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.audit-filter .form-control { width: auto; min-width: 128px; flex: 0 1 auto; }
+.audit-filter .audit-kw { flex: 1 1 220px; }
+.audit-filter input[type=datetime-local] { min-width: 190px; }
+.audit-table td { vertical-align: middle !important; }
+.audit-table tbody tr { cursor: pointer; }
+.audit-time { font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.35; }
+.audit-time b { display: block; font-weight: 600; font-size: 13px; color: var(--zn-text); }
+.audit-time span { font-size: 11.5px; color: var(--zn-text-3); }
+.audit-op { font-weight: 600; white-space: nowrap; }
+.audit-path, .audit-msg { font-size: 11.5px; color: var(--zn-text-3); max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audit-path { font-family: var(--zn-mono); }
+.audit-msg { margin-top: 3px; color: var(--zn-text-2); }
+.audit-target { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.audit-kv { margin-bottom: 16px; border: 1px solid var(--zn-line-soft); border-radius: var(--zn-radius); overflow: hidden; }
+.audit-kv td { padding: 9px 14px; }
+.audit-ua { font-size: 12px; color: var(--zn-text-2); }
+.audit-params-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-weight: 600; }
+.audit-params-head small { font-weight: 400; }
+.audit-params-head .btn { margin-left: auto; }
+.audit-json { max-height: 360px; overflow: auto; margin: 0; background: #1d1d1f; color: #e8e8ed; border: 0; border-radius: var(--zn-radius); padding: 14px 16px; font-family: var(--zn-mono); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+@media (max-width: 767px) {
+  .audit-filter .form-control, .audit-filter input[type=datetime-local] { flex: 1 1 46%; min-width: 0; }
+  .audit-path, .audit-msg, .audit-target { max-width: 180px; }
+}
+
 /* ============ 顶栏附加元素（所有皮肤通用，Modern 皮肤另有精细样式） ============ */
 .main-header .zn-page-title { display: none; }
 .skin-modern .main-header .zn-page-title { display: block; }

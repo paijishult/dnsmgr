@@ -195,7 +195,21 @@ class User extends BaseController
             $select->where('domain', 'in', api_domains());
         }
         $total = $select->count();
-        $rows = $select->order('id', 'desc')->limit($offset, $limit)->select();
+        $rows = $select->order('id', 'desc')->limit($offset, $limit)->select()->toArray();
+
+        if ($this->request->isApi && $rows) {
+            // API读取日志时，把其中出现的DNS/证书/部署账户名称（AccessKey、面板地址、邮箱等）替换掉
+            $names = array_merge(Db::name('account')->column('name'), Db::name('cert_account')->column('name'));
+            $names = array_values(array_unique(array_filter(array_map('strval', $names), fn($v) => mb_strlen(trim($v)) >= 4)));
+            usort($names, fn($a, $b) => strlen($b) - strlen($a));
+            if ($names) {
+                foreach ($rows as &$row) {
+                    $row['domain'] = str_replace($names, '******', (string)$row['domain']);
+                    $row['data'] = str_replace($names, '******', (string)$row['data']);
+                }
+                unset($row);
+            }
+        }
 
         return json(['total' => $total, 'rows' => $rows]);
     }

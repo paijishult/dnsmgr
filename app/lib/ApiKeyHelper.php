@@ -212,7 +212,7 @@ class ApiKeyHelper
      */
     public static function isSecretField($field)
     {
-        return (bool)preg_match('/(pass|pwd|secret|token|private|apikey|api_key|accesskey|access_key|credential|cookie|^key$|_key$|^sk$|^ak$)/i', (string)$field);
+        return (bool)preg_match('/(pass|pwd|secret|token|private|apiid$|accesskey|access_key|credential|cookie|kubeconfig|hmac|signature|proxy_url|webhook_url|webhook_headers|^auth_|key$|^sk$|^ak$|^kid$)/i', (string)$field);
     }
 
     /**

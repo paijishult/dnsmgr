@@ -31,13 +31,15 @@ class Domain extends BaseController
 
         $select = Db::name('account');
         if (!empty($kw)) {
-            $select->whereLike('name|remark', '%' . $kw . '%');
+            // API不允许按账户名称搜索，防止通过搜索结果逐位猜出AccessKey
+            $select->whereLike($this->request->isApi ? 'remark' : 'name|remark', '%' . $kw . '%');
         }
         if (api_domains() !== null) {
             $select->where('id', 'in', Db::name('domain')->where('name', 'in', api_domains())->column('aid') ?: [0]);
         }
         $total = $select->count();
         $allowedSort = ['id' => 'id', 'typename' => 'type', 'name' => 'name', 'remark' => 'remark', 'addtime' => 'addtime'];
+        if ($this->request->isApi) unset($allowedSort['name']);
         if ($sort && isset($allowedSort[$sort])) {
             $select->order($allowedSort[$sort], $orderDir);
         } else {
@@ -54,10 +56,10 @@ class Domain extends BaseController
                 $row['typename'] = $row['type'] ?: '未知';
                 $row['icon'] = '';
             }
-            // 列表中不输出账户密钥配置
+            // 列表中不输出账户密钥配置；API只返回账户ID、类型和备注，不返回账户名称（通常是AccessKey或面板地址）
             unset($row['config']);
             if ($this->request->isApi) {
-                $row['name'] = \app\lib\ApiKeyHelper::maskText($row['name']);
+                unset($row['name']);
             }
             $list[] = $row;
         }

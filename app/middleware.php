@@ -8,5 +8,6 @@ return [
     // Session初始化
     // \think\middleware\SessionInit::class
     \app\middleware\LoadConfig::class,
-    \app\middleware\AuthUser::class
+    \app\middleware\AuthUser::class,
+    \app\middleware\AuditLog::class
 ];

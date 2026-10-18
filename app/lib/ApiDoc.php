@@ -38,7 +38,7 @@ class ApiDoc
                     ['/api/domain/category/add', 'domain:write', '添加域名分类', [['name', 'string', true, '分类名称', '业务'], ['remark', 'string', false, '备注', ''], ['sort', 'int', false, '排序，越小越靠前', '0']], '{"code":0,"msg":"添加分类成功！"}'],
                     ['/api/domain/category/edit', 'domain:write', '修改域名分类', [['id', 'int', true, '分类ID', '1'], ['name', 'string', true, '分类名称', '业务'], ['remark', 'string', false, '备注', ''], ['sort', 'int', false, '排序', '0']], '{"code":0,"msg":"修改分类成功！"}'],
                     ['/api/domain/category/del', 'domain:write', '删除域名分类（分类下有域名时无法删除）', [['id', 'int', true, '分类ID', '1']], '{"code":0,"msg":"删除分类成功！"}'],
-                    ['/api/account/data', 'domain:read', '获取DNS账户列表（仅管理员，不返回任何账户密钥）', array_merge([['kw', 'string', false, '搜索关键词', '']], $page), '{"total":1,"rows":[{"id":1,"type":"aliyun","typename":"阿里云","name":"LTAI****abcd","remark":"主账号"}]}'],
+                    ['/api/account/data', 'domain:read', '获取DNS账户列表（仅管理员；只返回ID、类型和备注，不返回账户名称和任何密钥）', array_merge([['kw', 'string', false, '搜索备注', '']], $page), '{"total":1,"rows":[{"id":1,"type":"aliyun","typename":"阿里云","remark":"主账号","addtime":"..."}]}'],
                     ['/api/domain/list', 'domain:write', '查询DNS账户下的域名（用于添加域名）', [
                         ['aid', 'int', true, 'DNS账户ID', '1'],
                         ['kw', 'string', false, '搜索关键词', ''],
@@ -191,7 +191,7 @@ class ApiDoc
                 'key' => 'cert',
                 'name' => 'SSL证书',
                 'items' => [
-                    ['/api/cert/account/data', 'cert:read', '获取SSL证书账户列表（不返回任何账户密钥）。请求地址需带 ?deploy=0', array_merge([['kw', 'string', false, '搜索关键词', '']], $page), '{"total":1,"rows":[{"id":1,"type":"letsencrypt","typename":"Let\'s Encrypt","name":"me@****","remark":""}]}', null, '?deploy=0'],
+                    ['/api/cert/account/data', 'cert:read', '获取SSL证书账户列表（只返回ID、类型和备注，不返回邮箱和任何密钥）。请求地址需带 ?deploy=0', array_merge([['kw', 'string', false, '搜索备注', '']], $page), '{"total":1,"rows":[{"id":1,"type":"letsencrypt","typename":"Let\'s Encrypt","remark":"","deploy":0}]}', null, '?deploy=0'],
                     ['/api/cert/order/data', 'cert:read', '获取证书订单列表（不返回证书和私钥内容）', array_merge([
                         ['domain', 'string', false, '按域名搜索', ''],
                         ['id', 'int', false, '订单ID', ''],
@@ -251,9 +251,9 @@ class ApiDoc
             [
                 'key' => 'deploy',
                 'name' => '证书推送（自动部署）',
-                'desc' => '部署账户（服务器、面板、云厂商的密钥）只能在后台管理，API不会返回这些密钥；任务配置中的密码类字段会被脱敏。SSH、FTP、复制到本机、S3存储这类可以执行命令或写入服务器任意文件的部署类型，API只能查看和执行，不能创建或修改。',
+                'desc' => '部署账户（服务器、面板、云厂商的密钥）只能在后台管理，API只能看到账户的ID、类型和备注，不会返回账户名称、面板地址和任何密钥；任务配置中的密码类字段会被脱敏，返回内容中如出现系统保存的密钥也会被替换为 ******。SSH、FTP、复制到本机、S3存储这类可以执行命令或写入服务器任意文件的部署类型，API只能查看和执行，不能创建或修改。',
                 'items' => [
-                    ['/api/cert/account/data', 'deploy:read', '获取部署账户列表（不返回任何账户密钥）。请求地址需带 ?deploy=1', array_merge([['kw', 'string', false, '搜索关键词', '']], $page), '{"total":1,"rows":[{"id":2,"type":"btpanel","typename":"宝塔面板","name":"http****8888","remark":"web1"}]}', null, '?deploy=1'],
+                    ['/api/cert/account/data', 'deploy:read', '获取部署账户列表（只返回ID、类型和备注，不返回面板地址和任何密钥）。请求地址需带 ?deploy=1', array_merge([['kw', 'string', false, '搜索备注', '']], $page), '{"total":1,"rows":[{"id":2,"type":"btpanel","typename":"宝塔面板","remark":"web1","deploy":1}]}', null, '?deploy=1'],
                     ['/api/cert/deploy/data', 'deploy:read', '获取自动部署任务列表', array_merge([
                         ['oid', 'int', false, '证书订单ID', ''],
                         ['aid', 'int', false, '部署账户ID', ''],

@@ -36,7 +36,7 @@
 					<option value="1">记录</option>
 					<option value="0">不记录</option>
 				</select>
-				<p class="help-block">只记录修改类操作，不记录查询。</p>
+				<p class="help-block">写入「操作日志」，只记录修改类操作。每一次调用的完整记录（含查询、失败和被拒绝的请求）见 <a href="/audit?source=api">审计日志</a>。</p>
 			</div>
 			<div class="form-group">
 				<label>客户端IP获取方式</label>
@@ -53,7 +53,8 @@
 		<div class="box-header with-border"><i class="fa fa-shield fa-fw"></i><h3 class="box-title">安全说明</h3></div>
 		<div class="box-body" style="font-size:13px;line-height:1.8;color:#46526a">
 			<p style="margin:0 0 6px">· Secret 只在创建/重置时显示一次，服务器使用系统密钥加密保存。</p>
-			<p style="margin:0 0 6px">· API 无法读取任何DNS账户、证书账户、部署服务器的密钥，也不能修改这些账户、用户和系统设置。</p>
+			<p style="margin:0 0 6px">· API 只能看到DNS账户、证书账户、部署账户的类型和备注，看不到账户名称、面板地址和任何密钥，也不能修改这些账户、用户和系统设置。</p>
+			<p style="margin:0 0 6px">· 每一次API调用（包括签名错误、无权限、超频被拒绝的请求）都会记入 <a href="/audit?source=api">审计日志</a>。</p>
 			<p style="margin:0 0 6px">· SSH、FTP、复制到本机、S3存储类型的部署任务只能在后台创建和修改，API只能执行。</p>
 			<p style="margin:0 0 6px">· 同一IP连续认证失败20次将被封禁15分钟。</p>
 			<p style="margin:0">· 建议按用途分开创建密钥，只给需要的权限、域名和IP。</p>
@@ -202,7 +203,7 @@ function load() {
 					'<a href="javascript:openForm(' + r.id + ')" class="btn btn-default btn-xs">编辑</a> ' +
 
 					'<div class="btn-group"><button type="button" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown">更多 <span class="caret"></span></button>' +
-					'<ul class="dropdown-menu dropdown-menu-right"><li><a href="javascript:resetKey(' + r.id + ')">重置Secret</a></li><li><a href="/log?kw=' + encodeURIComponent('API:' + r.name) + '">查看调用日志</a></li><li class="divider"></li><li><a href="javascript:delKey(' + r.id + ')" class="text-danger">删除</a></li></ul></div>' +
+					'<ul class="dropdown-menu dropdown-menu-right"><li><a href="javascript:resetKey(' + r.id + ')">重置Secret</a></li><li><a href="/audit?source=api&kid=' + r.id + '">查看调用记录</a></li><li class="divider"></li><li><a href="javascript:delKey(' + r.id + ')" class="text-danger">删除</a></li></ul></div>' +
 				'</td></tr>';
 		});
 		$('#keyList').html(html);
@@ -314,7 +315,7 @@ function delKey(id) {
 	});
 }
 function saveSetting() {
-	$.post('/system/set', $('#settingForm').serialize(), function(res) {
+	$.post('/apikey/setting', $('#settingForm').serialize(), function(res) {
 		if (res.code == 0) layer.msg('设置已保存', {icon: 1}); else layer.alert(res.msg, {icon: 2});
 	}, 'json');
 	return false;

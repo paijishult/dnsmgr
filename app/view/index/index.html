@@ -69,6 +69,8 @@
 			<ul class="zn-list">
 				<li><a href="/apikey">启用中的密钥<span class="zn-count" id="apikeys">0</span></a></li>
 				<li><span>最近调用<small class="text-muted" id="apikey_last">从未</small></span></li>
+				<li><a href="/audit?source=api">24小时调用<span class="zn-count" id="api_calls">0</span></a></li>
+				<li><a href="/audit?source=api&result=2">24小时拒绝<span class="zn-count" id="api_denied">0</span></a></li>
 				<li><a href="/apikey/doc">查看接口文档<i class="fa fa-angle-right text-muted"></i></a></li>
 			</ul>
 		</div>
@@ -129,6 +131,9 @@ $(function(){
 			$('#dmonitor_state').html(d.dmonitor_state == 1 ? '<span class="zn-dot on"></span>运行中' : '<span class="zn-dot off"></span>已停止');
 			['dmonitor_active','dmonitor_status_0','dmonitor_status_1','optimizeip_active','optimizeip_status_1','optimizeip_status_2','certorder_status_3','certorder_status_5','certorder_status_6','certorder_status_7','certdeploy_status_0','certdeploy_status_1','certdeploy_status_2','apikeys'].forEach(function(k){ setCount(k, d[k] || 0); });
 			if (d.apikey_last) $('#apikey_last').text(d.apikey_last);
+			setCount('api_calls', d.api_calls || 0);
+			setCount('api_denied', d.api_denied || 0);
+			$('#api_denied').toggleClass('is-bad', (d.api_denied || 0) > 0);
 		}
 	});
 	if (window.location.protocol.indexOf('https') == -1 && ['localhost', '127.0.0.1'].indexOf(location.hostname) == -1) {

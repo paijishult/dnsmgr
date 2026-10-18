@@ -39,11 +39,13 @@ class Cert extends BaseController
         $select = Db::name('cert_account')->where('deploy', $deploy);
         if (!empty($kw)) {
             $select->where(function ($query) use ($kw) {
-                $query->whereLike('name|remark', '%' . $kw . '%')->whereOr('id', $kw);
+                // API不允许按账户名称搜索，防止通过搜索结果逐位猜出账户名称（AccessKey、面板地址等）
+                $query->whereLike($this->request->isApi ? 'remark' : 'name|remark', '%' . $kw . '%')->whereOr('id', $kw);
             });
         }
         $total = $select->count();
         $allowedSort = ['id' => 'id', 'typename' => 'type', 'name' => 'name', 'remark' => 'remark', 'addtime' => 'addtime'];
+        if ($this->request->isApi) unset($allowedSort['name']);
         if ($sort && isset($allowedSort[$sort])) {
             $select->order($allowedSort[$sort], $orderDir);
         } else {
@@ -64,10 +66,10 @@ class Cert extends BaseController
                     $row['icon'] = CertHelper::$cert_config[$row['type']]['icon'];
                 }
             }
-            // 列表中不输出账户密钥配置
+            // 列表中不输出账户密钥配置；API只返回账户ID、类型和备注，不返回账户名称（面板地址、AccessKey、邮箱等）
             unset($row['config'], $row['ext']);
             if ($this->request->isApi) {
-                $row['name'] = \app\lib\ApiKeyHelper::maskText($row['name']);
+                unset($row['name']);
             }
             $list[] = $row;
         }
@@ -766,7 +768,7 @@ class Cert extends BaseController
                 // API只输出脱敏后的任务配置与部署账户名称
                 $config = json_decode($row['config'] ?? '', true);
                 $row['config'] = is_array($config) ? \app\lib\ApiKeyHelper::redact($config) : null;
-                $row['aname'] = \app\lib\ApiKeyHelper::maskText($row['aname']);
+                unset($row['aname']);
                 $row['api_writable'] = self::deployTypeApiWritable($row['type']);
             }
             $list[] = $row;

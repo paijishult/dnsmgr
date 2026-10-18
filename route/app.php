@@ -180,6 +180,12 @@ Route::group(function () {
     Route::post('/apikey/:action', 'apikey/op');
     Route::get('/apikey', 'apikey/index');
 
+    Route::post('/audit/data', 'audit/data');
+    Route::get('/audit/export', 'audit/export');
+    Route::post('/audit/clean', 'audit/clean');
+    Route::post('/audit/setting', 'audit/setting');
+    Route::get('/audit', 'audit/index');
+
 })->middleware(CheckLogin::class)
 ->middleware(ViewOutput::class);
 

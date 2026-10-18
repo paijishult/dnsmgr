@@ -107,7 +107,8 @@ class Apikey extends BaseController
             $row = Db::name('apikey')->where('id', $id)->find();
             if (!$row) return json(['code' => -1, 'msg' => 'API密钥不存在']);
             Db::name('apikey')->where('id', $id)->update($data);
-            $this->log('修改API密钥', $data['name'] . ' (' . $row['keyid'] . ')');
+            $changes = $this->diff($row, $data);
+            $this->log('修改API密钥', $data['name'] . ' (' . $row['keyid'] . ')' . ($changes ? '：' . $changes : '，无变化'));
             return json(['code' => 0, 'msg' => '修改成功']);
         } elseif ($action == 'reset') {
             $id = input('post.id/d');
@@ -125,6 +126,23 @@ class Apikey extends BaseController
             Db::name('apikey')->where('id', $id)->update(['status' => $status]);
             $this->log($status ? '启用API密钥' : '禁用API密钥', $row['name']);
             return json(['code' => 0, 'msg' => $status ? '已启用' : '已禁用']);
+        } elseif ($action == 'setting') {
+            $open = input('post.api_key_open') == '1' ? '1' : '0';
+            $log = input('post.api_log') == '1' ? '1' : '0';
+            $source = input('post.api_ip_source');
+            if (!is_string($source) || !isset(ApiKeyHelper::$ipSources[$source])) return json(['code' => -1, 'msg' => 'IP获取方式不正确']);
+            $old = ['api_key_open' => config_get('api_key_open', '1'), 'api_log' => config_get('api_log', '1'), 'api_ip_source' => config_get('api_ip_source', 'auto')];
+            config_set('api_key_open', $open);
+            config_set('api_log', $log);
+            config_set('api_ip_source', $source);
+            \think\facade\Cache::delete('configs');
+            $labels = ['api_key_open' => 'API密钥调用', 'api_log' => '记录API操作日志', 'api_ip_source' => 'IP获取方式'];
+            $changes = [];
+            foreach (['api_key_open' => $open, 'api_log' => $log, 'api_ip_source' => $source] as $k => $v) {
+                if ((string)$old[$k] !== $v) $changes[] = $labels[$k] . '：' . $old[$k] . ' → ' . $v;
+            }
+            if ($changes) $this->log('修改API设置', implode('；', $changes));
+            return json(['code' => 0, 'msg' => '设置已保存']);
         } elseif ($action == 'del') {
             $id = input('post.id/d');
             $row = Db::name('apikey')->where('id', $id)->find();
@@ -190,6 +208,32 @@ class Apikey extends BaseController
             'expiretime' => $expire ?: null,
             'remark' => mb_substr(trim((string)input('post.remark', '')), 0, 255) ?: null,
         ];
+    }
+
+    /**
+     * 对比修改前后的差异，用于操作日志
+     */
+    private function diff($old, $new)
+    {
+        $out = [];
+        if ($old['name'] !== $new['name']) $out[] = '名称 ' . $old['name'] . ' → ' . $new['name'];
+        if ((int)$old['uid'] !== (int)$new['uid']) $out[] = '所属用户 ' . $old['uid'] . ' → ' . $new['uid'];
+        $list = function ($v, $sep) {
+            return $v ? array_values(array_filter(explode($sep, (string)$v))) : [];
+        };
+        foreach ([['scopes', ',', '权限'], ['domains', "\n", '域名范围'], ['ipwhitelist', "\n", 'IP白名单']] as [$f, $sep, $label]) {
+            $a = $list($old[$f], $sep);
+            $b = $list($new[$f], $sep);
+            $add = array_diff($b, $a);
+            $del = array_diff($a, $b);
+            if ($add || $del) {
+                $out[] = $label . ($add ? ' +' . implode(' +', $add) : '') . ($del ? ' -' . implode(' -', $del) : '');
+            }
+        }
+        if ((int)$old['ratelimit'] !== (int)$new['ratelimit']) $out[] = '频率 ' . $old['ratelimit'] . ' → ' . $new['ratelimit'];
+        if ((string)$old['expiretime'] !== (string)$new['expiretime']) $out[] = '有效期 ' . ($old['expiretime'] ?: '永久') . ' → ' . ($new['expiretime'] ?: '永久');
+        if ((string)$old['remark'] !== (string)$new['remark']) $out[] = '备注已修改';
+        return implode('；', $out);
     }
 
     private function log($action, $data)

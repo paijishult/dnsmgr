@@ -62,6 +62,16 @@ class Index extends BaseController
                     $stat['apikeys'] = 0;
                     $stat['apikey_last'] = null;
                 }
+                $stat['api_calls'] = 0;
+                $stat['api_denied'] = 0;
+                if ($this->request->user['level'] == 2) {
+                    try {
+                        $au = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(result=2),0) AS d FROM `' . $prefix . 'audit` WHERE source=\'api\' AND addtime >= ?', [date('Y-m-d H:i:s', time() - 86400)])[0];
+                        $stat['api_calls'] = (int)$au['c'];
+                        $stat['api_denied'] = (int)$au['d'];
+                    } catch (Exception $e) {
+                    }
+                }
                 $stat['expire_domains'] = $this->request->user['level'] == 2 ? Db::name('domain')->where('expiretime', '<=', date('Y-m-d H:i:s', time() + 86400 * 30))->where('expiretime', '>', $now)->count() : 0;
 
                 return json($stat);

@@ -197,6 +197,9 @@
           <li class="{:checkIfActive('log')}">
             <a href="/log"><i class="fa fa-list fa-fw"></i> <span>操作日志</span></a>
           </li>
+          {if request()->user['level'] eq 2}<li class="{if request()->controller() == 'Audit'}active{/if}">
+            <a href="/audit"><i class="fa fa-shield fa-fw"></i> <span>审计日志</span></a>
+          </li>{/if}
         </ul>
       </section>
       <!-- /.sidebar -->

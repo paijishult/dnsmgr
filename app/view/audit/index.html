@@ -1,0 +1,277 @@
+{extend name="common/layout" /}
+{block name="title"}审计日志 - 聚合DNS管理系统{/block}
+{block name="main"}
+<div class="zn-overview audit-overview">
+	<a class="zn-stat is-blue" href="javascript:quickFilter({})">
+		<div class="zn-stat-label"><i class="fa fa-history"></i>近24小时记录</div>
+		<div class="zn-stat-num" id="statTotal"><span class="zn-skeleton"></span></div>
+		<div class="zn-stat-sub" id="statTotalSub">&nbsp;</div>
+	</a>
+	<a class="zn-stat is-purple" href="javascript:quickFilter({source:'api'})">
+		<div class="zn-stat-label"><i class="fa fa-key"></i>API调用</div>
+		<div class="zn-stat-num" id="statApi"><span class="zn-skeleton"></span></div>
+		<div class="zn-stat-sub">近24小时，点击只看API</div>
+	</a>
+	<a class="zn-stat is-orange" href="javascript:quickFilter({result:'0'})">
+		<div class="zn-stat-label"><i class="fa fa-exclamation"></i>失败</div>
+		<div class="zn-stat-num" id="statFail"><span class="zn-skeleton"></span></div>
+		<div class="zn-stat-sub">近24小时，点击只看失败</div>
+	</a>
+	<a class="zn-stat is-red" href="javascript:quickFilter({result:'2'})">
+		<div class="zn-stat-label"><i class="fa fa-ban"></i>拒绝访问</div>
+		<div class="zn-stat-num" id="statDenied"><span class="zn-skeleton"></span></div>
+		<div class="zn-stat-sub" id="statDeniedSub">签名错误、无权限、超频等</div>
+	</a>
+</div>
+
+<div class="box">
+	<div class="box-header with-border">
+		<i class="fa fa-shield fa-fw"></i><h3 class="box-title">审计日志</h3>
+		<span class="text-muted audit-retain" id="retainTip"></span>
+		<div class="box-tools pull-right">
+			<a href="javascript:exportCsv()" class="btn btn-default btn-sm"><i class="fa fa-download"></i> 导出CSV</a>
+			<a href="javascript:openSetting()" class="btn btn-default btn-sm"><i class="fa fa-sliders"></i> 审计设置</a>
+		</div>
+	</div>
+	<div class="box-body">
+		<form onsubmit="return searchSubmit()" method="GET" class="audit-filter" id="searchToolbar">
+			<select class="form-control" name="source" title="来源">
+				<option value="">全部来源</option>
+				<option value="web">后台操作</option>
+				<option value="api">API调用</option>
+			</select>
+			<select class="form-control" name="result" title="结果">
+				<option value="">全部结果</option>
+				<option value="1">成功</option>
+				<option value="0">失败</option>
+				<option value="2">拒绝</option>
+			</select>
+			<select class="form-control" name="kid" title="API密钥">
+				<option value="">全部API密钥</option>
+				{foreach $keys as $k}<option value="{$k.id}">{$k.name}</option>{/foreach}
+			</select>
+			<select class="form-control" name="uid" title="用户">
+				<option value="">全部用户</option>
+				{foreach $users as $u}<option value="{$u.id}">{$u.username}</option>{/foreach}
+			</select>
+			<input type="text" class="form-control" name="ip" placeholder="IP地址" autocomplete="off">
+			<input type="text" class="form-control audit-kw" name="kw" placeholder="操作、对象、路径、参数、返回信息" autocomplete="off">
+			<input type="datetime-local" class="form-control" name="start" title="开始时间">
+			<input type="datetime-local" class="form-control" name="end" title="结束时间">
+			<button type="submit" class="btn btn-primary"><i class="fa fa-search"></i> 搜索</button>
+			<a href="javascript:resetFilter()" class="btn btn-default"><i class="fa fa-undo"></i> 重置</a>
+		</form>
+		<table id="listTable"></table>
+		<p class="help-block" style="margin:10px 0 0">点击任意一行查看完整详情（客户端、请求参数、返回信息等）。</p>
+	</div>
+</div>
+
+<div class="modal" id="detailModal" tabindex="-1" role="dialog">
+	<div class="modal-dialog modal-lg" role="document">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+				<h4 class="modal-title" id="detailTitle">日志详情</h4>
+			</div>
+			<div class="modal-body">
+				<table class="zn-kv audit-kv" id="detailKv"></table>
+				<div class="audit-params-head"><span>请求参数</span><small class="text-muted">密码、密钥、令牌、私钥等已脱敏</small><button type="button" class="btn btn-default btn-xs" id="copyParams"><i class="fa fa-copy"></i> 复制</button></div>
+				<pre class="audit-json" id="detailParams"></pre>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="modal" id="settingModal" tabindex="-1" role="dialog">
+	<div class="modal-dialog" role="document">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+				<h4 class="modal-title">审计设置</h4>
+			</div>
+			<form class="modal-body" id="settingForm" onsubmit="return saveSetting()">
+				<div class="form-group">
+					<label>后台操作</label>
+					<select class="form-control" name="audit_web">
+						<option value="1">记录（登录、所有修改操作、下载私钥等敏感查看）</option>
+						<option value="0">不记录</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label>API调用</label>
+					<select class="form-control" name="api_calllog">
+						<option value="all">记录全部调用（含查询）</option>
+						<option value="write">只记录修改操作、敏感查看和失败/拒绝的调用</option>
+						<option value="off">不记录</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label>保留天数</label>
+					<input type="number" class="form-control" name="audit_days" min="0" max="3650">
+					<p class="help-block">超过天数的记录会自动清理，0 表示永久保留。</p>
+				</div>
+				<button type="submit" class="btn btn-primary btn-block">保存设置</button>
+				<hr>
+				<label>手动清理</label>
+				<div class="input-group">
+					<span class="input-group-addon">清理</span>
+					<input type="number" class="form-control" id="cleanDays" min="1" value="90">
+					<span class="input-group-addon">天之前的记录</span>
+					<span class="input-group-btn"><button type="button" class="btn btn-danger" onclick="cleanLogs()">清理</button></span>
+				</div>
+				<p class="help-block">清理操作本身也会被记录。</p>
+			</form>
+		</div>
+	</div>
+</div>
+{/block}
+{block name="script"}
+<script src="/static/js/layer/layer.js"></script>
+<script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
+<script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
+<script>
+var SETTINGS = {:json_encode($settings)};
+var rowsById = {};
+function esc(s) { return htmlEscape(s == null ? '' : s); }
+function resultChip(r) {
+	var map = {1: ['is-good', '成功'], 0: ['is-bad', '失败'], 2: ['is-warn', '拒绝']};
+	var m = map[r.result] || ['', '未知'];
+	return '<span class="zn-count ' + m[0] + '">' + m[1] + '</span>';
+}
+function sourceChip(r) {
+	if (r.source == 'api') return '<span class="scope-chip is-write" title="' + esc(r.keyid || '') + '">API' + (r.kname ? ' · ' + esc(r.kname) : '') + '</span>';
+	return '<span class="scope-chip">后台</span>';
+}
+function quickFilter(f) {
+	$('#searchToolbar').find(':input[name]').val('');
+	$.each(f, function(k, v) { $('#searchToolbar [name=' + k + ']').val(v); });
+	searchSubmit();
+}
+function resetFilter() { searchClear(); }
+function exportCsv() {
+	var q = [];
+	$('#searchToolbar').find(':input[name]').each(function() { if ($(this).val()) q.push(this.name + '=' + encodeURIComponent($(this).val())); });
+	window.location.href = '/audit/export' + (q.length ? '?' + q.join('&') : '');
+}
+function showDetail(id) {
+	var r = rowsById[id];
+	if (!r) return;
+	var rows = [
+		['时间', esc(r.addtime)],
+		['来源', sourceChip(r)],
+		['操作者', r.username ? esc(r.username) + (r.uid > 0 ? ' <span class="text-muted">（UID ' + r.uid + '）</span>' : '') : '<span class="text-muted">-</span>'],
+	];
+	if (r.source == 'api') rows.push(['API密钥', (r.kname ? esc(r.kname) : '<span class="text-muted">未知</span>') + (r.keyid ? ' <span class="mono text-muted">' + esc(r.keyid) + '</span>' : '')]);
+	rows.push(
+		['IP地址', '<span class="mono">' + esc(r.ip) + '</span> <a href="javascript:;" class="audit-ip" data-ip="' + esc(r.ip) + '">只看此IP</a>'],
+		['客户端', '<span class="audit-ua">' + esc(r.ua || '-') + '</span>'],
+		['操作', esc(r.name)],
+		['对象', esc(r.target || '-')],
+		['请求', '<span class="mono">' + esc(r.method) + ' ' + esc(r.path) + '</span>'],
+		['结果', resultChip(r) + ' <span class="text-muted">HTTP ' + esc(r.status) + (r.code !== null ? '，返回码 ' + esc(r.code) : '') + '，耗时 ' + esc(r.duration) + 'ms</span>'],
+		['返回信息', esc(r.msg || '-')]
+	);
+	$('#detailKv').html(rows.map(function(x) { return '<tr><td>' + x[0] + '</td><td>' + x[1] + '</td></tr>'; }).join(''));
+	var params = '';
+	if (r.params) {
+		try { params = JSON.stringify(JSON.parse(r.params), null, 2); } catch (e) { params = r.params; }
+	}
+	$('#detailParams').text(params || '（无参数）');
+	$('#detailTitle').text('日志详情 #' + r.id);
+	$('#detailModal').modal('show');
+}
+function openSetting() {
+	$.each(SETTINGS, function(k, v) { $('#settingForm [name=' + k + ']').val(v); });
+	$('#settingModal').modal('show');
+}
+function saveSetting() {
+	$.post('/audit/setting', $('#settingForm').serialize(), function(res) {
+		if (res.code == 0) {
+			$('#settingForm').serializeArray().forEach(function(x) { SETTINGS[x.name] = x.value; });
+			retainTip();
+			$('#settingModal').modal('hide');
+			layer.msg(res.msg, {icon: 1});
+		} else layer.alert(res.msg, {icon: 2});
+	}, 'json');
+	return false;
+}
+function cleanLogs() {
+	var days = parseInt($('#cleanDays').val());
+	if (!(days >= 1)) { layer.msg('请输入至少1天', {icon: 2}); return; }
+	layer.confirm('确定清理 ' + days + ' 天之前的审计日志吗？清理后无法恢复。', {icon: 3, title: '清理审计日志', btn: ['清理', '取消']}, function(i) {
+		layer.close(i);
+		$.post('/audit/clean', {days: days}, function(res) {
+			if (res.code == 0) { layer.msg(res.msg, {icon: 1}); searchRefresh(); } else layer.alert(res.msg, {icon: 2});
+		}, 'json');
+	});
+}
+function retainTip() {
+	var d = parseInt(SETTINGS.audit_days);
+	var off = [];
+	if (SETTINGS.audit_web != '1') off.push('后台操作');
+	if (SETTINGS.api_calllog == 'off') off.push('API调用');
+	$('#retainTip').text((d > 0 ? '保留 ' + d + ' 天' : '永久保留') + (off.length ? ' · 未记录：' + off.join('、') : (SETTINGS.api_calllog == 'write' ? ' · API只记录修改操作' : '')));
+}
+function fillStat(s) {
+	if (!s) return;
+	$('#statTotal').text(s.total);
+	$('#statApi').text(s.api);
+	$('#statFail').text(s.fail);
+	$('#statDenied').text(s.denied);
+	$('#statTotalSub').text('涉及 ' + s.ips + ' 个IP' + (s.first ? '，最早记录 ' + s.first.substr(0, 10) : ''));
+	if (s.top_fail_ips && s.top_fail_ips.length) {
+		$('#statDeniedSub').html('失败最多：' + s.top_fail_ips.map(function(x) { return '<span class="mono">' + esc(x.ip) + '</span>×' + x.c; }).join('，'));
+	}
+}
+$(function() {
+	updateToolbar();
+	retainTip();
+	var first = true;
+	const pageSizeKey = 'audit_pagesize';
+	$('#listTable').bootstrapTable({
+		url: '/audit/data',
+		pageNumber: typeof window.$_GET['pageNumber'] != 'undefined' ? parseInt(window.$_GET['pageNumber']) : 1,
+		pageSize: getStoredPageSize(pageSizeKey),
+		classes: 'table table-hover audit-table',
+		showColumns: true,
+		showToggle: false,
+		queryParams: function(params) {
+			params = $.fn.bootstrapTable.custom.queryParams(params);
+			if (first) { params.withstat = 1; }
+			return params;
+		},
+		responseHandler: function(res) {
+			if (res.stat) { fillStat(res.stat); first = false; }
+			rowsById = {};
+			(res.rows || []).forEach(function(r) { rowsById[r.id] = r; });
+			return res;
+		},
+		columns: [
+			{field: 'addtime', title: '时间', formatter: function(v) { v = String(v || ''); return '<div class="audit-time"><b>' + esc(v.substr(11)) + '</b><span>' + esc(v.substr(0, 10)) + '</span></div>'; }},
+			{field: 'source', title: '来源', formatter: function(v, r) { return sourceChip(r); }},
+			{field: 'username', title: '操作者', formatter: function(v, r) { return v ? esc(v) : '<span class="text-muted">-</span>'; }},
+			{field: 'name', title: '操作', formatter: function(v, r) { return '<div class="audit-op">' + esc(v) + '</div><div class="audit-path">' + esc(r.method) + ' ' + esc(r.path) + '</div>'; }},
+			{field: 'target', title: '对象', formatter: function(v) { return v ? '<div class="audit-target" title="' + esc(v) + '">' + esc(v) + '</div>' : '<span class="text-muted">-</span>'; }},
+			{field: 'result', title: '结果', formatter: function(v, r) { return resultChip(r) + (r.msg ? '<div class="audit-msg" title="' + esc(r.msg) + '">' + esc(r.msg) + '</div>' : ''); }},
+			{field: 'ip', title: 'IP', formatter: function(v) { return '<a href="javascript:;" class="mono audit-ip" data-ip="' + esc(v) + '" title="只看此IP">' + esc(v) + '</a>'; }},
+			{field: 'duration', title: '耗时', visible: false, formatter: function(v) { return esc(v) + 'ms'; }}
+		],
+		onClickRow: function(row, $el, field) { if (field !== 'ip') showDetail(row.id); },
+		onPageChange: function(number, size) { setStoredPageSize(pageSizeKey, size); }
+	});
+	$(document).on('click', '.audit-ip', function(e) {
+		e.preventDefault();
+		e.stopPropagation();
+		$('#detailModal').modal('hide');
+		quickFilter({ip: $(this).data('ip')});
+	});
+	$('#copyParams').on('click', function() {
+		var text = $('#detailParams').text();
+		var done = function() { layer.msg('已复制', {icon: 1, time: 1000}); };
+		if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(done);
+		else { var t = $('<textarea>').val(text).css({position: 'fixed', top: 0, opacity: 0}).appendTo('body'); t[0].select(); document.execCommand('copy'); t.remove(); done(); }
+	});
+});
+</script>
+{/block}

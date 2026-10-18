@@ -43,6 +43,7 @@
 					<tr><td>500</td><td>服务器内部错误（不会返回调用栈等内部信息）</td></tr>
 				</tbody>
 			</table>
+			<p class="text-muted" style="margin-top:12px">每一次调用（包括认证失败、无权限和超频被拒绝的请求）都会记入后台 <a href="/audit?source=api">审计日志</a>，参数中的密钥类字段会脱敏保存。API 返回的DNS/证书/部署账户只包含ID、类型和备注。</p>
 		</div>
 	</div>
 
