@@ -33,6 +33,9 @@ class Domain extends BaseController
         if (!empty($kw)) {
             $select->whereLike('name|remark', '%' . $kw . '%');
         }
+        if (api_domains() !== null) {
+            $select->where('id', 'in', Db::name('domain')->where('name', 'in', api_domains())->column('aid') ?: [0]);
+        }
         $total = $select->count();
         $allowedSort = ['id' => 'id', 'typename' => 'type', 'name' => 'name', 'remark' => 'remark', 'addtime' => 'addtime'];
         if ($sort && isset($allowedSort[$sort])) {
@@ -50,6 +53,11 @@ class Domain extends BaseController
             } else {
                 $row['typename'] = $row['type'] ?: '未知';
                 $row['icon'] = '';
+            }
+            // 列表中不输出账户密钥配置
+            unset($row['config']);
+            if ($this->request->isApi) {
+                $row['name'] = \app\lib\ApiKeyHelper::maskText($row['name']);
             }
             $list[] = $row;
         }
@@ -231,6 +239,9 @@ class Domain extends BaseController
         if (request()->user['level'] == 1) {
             $select->where('is_hide', 0)->where('A.name', 'in', request()->user['permission']);
         }
+        if (api_domains() !== null) {
+            $select->where('A.name', 'in', api_domains());
+        }
         if (!isNullOrEmpty($status)) {
             if ($status == '2') {
                 $select->where('A.expiretime', '<=', date('Y-m-d H:i:s'));
@@ -267,6 +278,23 @@ class Domain extends BaseController
     public function domain_op()
     {
         $act = input('param.act');
+        if (api_domains() !== null) {
+            if ($act == 'add' && !api_domain_allowed(input('post.name', '', 'trim'))) {
+                return json(['code' => -1, 'msg' => '该域名不在API密钥允许的范围内']);
+            }
+            if (in_array($act, ['batchadd'])) {
+                foreach ((array)input('post.domains') as $row) {
+                    if (!is_array($row) || !api_domain_allowed($row['name'] ?? '')) return json(['code' => -1, 'msg' => '部分域名不在API密钥允许的范围内']);
+                }
+            }
+            $ids = input('?post.ids') ? (array)input('post.ids') : (input('?post.id') ? [input('post.id/d')] : []);
+            foreach (Db::name('domain')->where('id', 'in', $ids ?: [0])->column('name') as $name) {
+                if (!api_domain_allowed($name)) return json(['code' => -1, 'msg' => '域名' . $name . '不在API密钥允许的范围内']);
+            }
+        }
+        if ($this->request->isApi && $act != 'get') {
+            api_write_log('域名管理:' . $act, (string)(input('post.name') ?: (input('post.id') ?: implode(',', (array)input('post.ids', [])))));
+        }
         if ($act == 'get') {
             $id = input('post.id/d');
             $row = Db::name('domain')->where('id', $id)->find();
@@ -396,6 +424,10 @@ class Domain extends BaseController
         $result = $dns->getDomainList($kw, $page, $pagesize);
         if (!$result) return json(['code' => -1, 'msg' => '获取域名列表失败，' . $dns->getError()]);
 
+        if (api_domains() !== null) {
+            $result['list'] = array_values(array_filter($result['list'], fn($row) => api_domain_allowed($row['Domain'])));
+            $result['total'] = count($result['list']);
+        }
         foreach ($result['list'] as &$row) {
             $row['disabled'] = Db::name('domain')->where('aid', $aid)->where('name', $row['Domain'])->find() != null;
         }
@@ -447,7 +479,7 @@ class Domain extends BaseController
         $drow['config'] = $dnsconfig;
         $drow['recordLine'] = $recordLineArr;
         $drow['minTTL'] = $minTTL ? $minTTL : 1;
-        if (input('?post.loginurl') && input('post.loginurl') == '1') {
+        if (input('?post.loginurl') && input('post.loginurl') == '1' && api_has_scope('record:write')) {
             $token = getSid();
             cache('quicklogin_' . $drow['name'], $token, 3600);
             $timestamp = time();
@@ -1228,7 +1260,13 @@ class Domain extends BaseController
 
     private function add_log($domain, $action, $data)
     {
-        if (strlen($data) > 500) $data = substr($data, 0, 500);
+        if (!empty($this->request->apiKey)) {
+            if (config_get('api_log', '1') != '1') return;
+            $data .= ' [API:' . $this->request->apiKey['name'] . ']';
+        } elseif ($this->request->isApi) {
+            $data .= ' [API]';
+        }
+        if (strlen($data) > 500) $data = mb_strcut($data, 0, 500);
         Db::name('log')->insert(['uid' => request()->user['id'], 'domain' => $domain, 'action' => $action, 'data' => $data, 'addtime' => date("Y-m-d H:i:s")]);
     }
 
@@ -1243,6 +1281,10 @@ class Domain extends BaseController
         if (!checkPermission(0, $drow['name'])) return $this->alert('error', '无权限');
         if (request()->isAjax()) {
             $act = input('param.act');
+            $weightModel = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+            if (!$weightModel || !method_exists($weightModel, 'setWeightStatus')) {
+                return json(['code' => -1, 'msg' => '该DNS平台不支持权重设置']);
+            }
             if ($act == 'status') {
                 $subdomain = input('post.subdomain', null, 'trim');
                 $status = input('post.status', null, 'trim');
@@ -1327,6 +1369,7 @@ class Domain extends BaseController
         if (!checkPermission(0, $drow['name'])) return json(['total' => 0, 'rows' => []]);
 
         $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+        if (!$dns || !method_exists($dns, 'getWeightSubDomains')) return json(['total' => 0, 'rows' => []]);
         $domainRecords = $dns->getWeightSubDomains($page, $limit, $keyword);
         if (!$domainRecords) return json(['total' => 0, 'rows' => []]);
         return json(['total' => $domainRecords['total'], 'rows' => $domainRecords['list']]);
@@ -1342,6 +1385,10 @@ class Domain extends BaseController
         if (!checkPermission(0, $drow['name'])) return $this->alert('error', '无权限');
         if (request()->isAjax()) {
             $act = input('param.act');
+            $aliasModel = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+            if (!$aliasModel || !method_exists($aliasModel, 'domainAliasList')) {
+                return json(['code' => -1, 'msg' => '该DNS平台不支持域名别名']);
+            }
             if ($act == 'add') {
                 $alias = input('post.alias', null, 'trim');
                 if (empty($alias)) {
@@ -1364,6 +1411,12 @@ class Domain extends BaseController
                 } else {
                     return json(['code' => -1, 'msg' => '删除域名别名失败，' . $dns->getError()]);
                 }
+            } elseif ($act == 'list' || $this->request->isApi) {
+                $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+                $domainAliasList = $dns->domainAliasList();
+                if ($domainAliasList === false) return json(['code' => -1, 'msg' => '获取域名别名失败，' . $dns->getError()]);
+                $this->updateAliasList($id, $domainAliasList);
+                return json(['code' => 0, 'data' => $domainAliasList]);
             }
         }
 
@@ -1530,7 +1583,11 @@ class Domain extends BaseController
     public function category_op()
     {
         if (!checkPermission(2)) return json(['code' => -1, 'msg' => '无权限']);
+        if (api_domains() !== null) return json(['code' => -1, 'msg' => '限定了域名范围的API密钥不能管理域名分类']);
         $action = input('param.action');
+        if ($this->request->isApi && in_array($action, ['add', 'edit', 'del'])) {
+            api_write_log('域名分类:' . $action, (string)(input('post.name') ?: input('post.id')));
+        }
         if ($action == 'add') {
             $name = input('post.name', null, 'trim');
             $remark = input('post.remark', null, 'trim');
@@ -1589,6 +1646,9 @@ class Domain extends BaseController
         $ids = input('post.ids');
         $cid = input('post.cid/d', 0);
         if (empty($ids)) return json(['code' => -1, 'msg' => '请选择要操作的域名']);
+        foreach (Db::name('domain')->where('id', 'in', (array)$ids)->column('name') as $name) {
+            if (!api_domain_allowed($name)) return json(['code' => -1, 'msg' => '域名' . $name . '不在API密钥允许的范围内']);
+        }
         $count = Db::name('domain')->where('id', 'in', $ids)->update(['cid' => $cid]);
         return json(['code' => 0, 'msg' => '成功设置' . $count . '个域名的分类！']);
     }

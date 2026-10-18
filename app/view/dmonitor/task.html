@@ -45,7 +45,7 @@ tbody tr>td:nth-child(4){overflow: hidden;text-overflow: ellipsis;white-space: n
 <script src="/static/js/layer/layer.js"></script>
 <script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
-<script src="/static/js/custom.js?v=1006"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
 $(document).ready(function(){
 	updateToolbar();
@@ -78,7 +78,7 @@ $(document).ready(function(){
 				title: '域名',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<span title="'+row.remark+'" data-toggle="tooltip" data-placement="right">' + value + '.' + row.domain + '</span>';
+					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + value + '.' + row.domain + '</span>';
 				}
 			},
 			{
@@ -165,6 +165,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'remark',
+				escape: true,
 				title: '备注',
 				sortable: true,
 				visible: false

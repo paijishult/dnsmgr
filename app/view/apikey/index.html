@@ -1,0 +1,344 @@
+{extend name="common/layout" /}
+{block name="title"}API密钥 - 聚合DNS管理系统{/block}
+{block name="main"}
+<div class="row">
+<div class="col-lg-9 col-md-12">
+	<div class="box">
+		<div class="box-header with-border">
+			<i class="fa fa-key fa-fw"></i><h3 class="box-title">API密钥</h3>
+			<div class="box-tools pull-right">
+				<a href="/apikey/doc" class="btn btn-default btn-sm"><i class="fa fa-book"></i> 接口文档</a>
+				<button class="btn btn-primary btn-sm" onclick="openForm()"><i class="fa fa-plus"></i> 创建密钥</button>
+			</div>
+		</div>
+		<div class="table-responsive">
+			<table class="table table-hover" style="margin:0">
+				<thead><tr><th>名称</th><th>KeyID</th><th>权限</th><th>限制</th><th>最近使用</th><th>状态</th><th style="width:120px">操作</th></tr></thead>
+				<tbody id="keyList"><tr><td colspan="7" class="text-center text-muted" style="padding:32px">加载中…</td></tr></tbody>
+			</table>
+		</div>
+	</div>
+</div>
+<div class="col-lg-3 col-md-12">
+	<div class="box">
+		<div class="box-header with-border"><i class="fa fa-sliders fa-fw"></i><h3 class="box-title">API设置</h3></div>
+		<form class="box-body" id="settingForm" onsubmit="return saveSetting()">
+			<div class="form-group">
+				<label>API密钥调用</label>
+				<select class="form-control" name="api_key_open">
+					<option value="1">开启</option>
+					<option value="0">全部暂停</option>
+				</select>
+			</div>
+			<div class="form-group">
+				<label>记录API操作日志</label>
+				<select class="form-control" name="api_log">
+					<option value="1">记录</option>
+					<option value="0">不记录</option>
+				</select>
+				<p class="help-block">只记录修改类操作，不记录查询。</p>
+			</div>
+			<div class="form-group">
+				<label>客户端IP获取方式</label>
+				<select class="form-control" name="api_ip_source">
+					{foreach $ipSources as $k => $v}<option value="{$k}">{$v}</option>{/foreach}
+				</select>
+				<p class="help-block" id="ipSourceDesc"></p>
+				<p class="help-block">用于IP白名单、失败封禁和DDNS自动取IP。选错可能导致白名单被伪造的请求头绕过。</p>
+			</div>
+			<button type="submit" class="btn btn-default btn-block">保存设置</button>
+		</form>
+	</div>
+	<div class="box">
+		<div class="box-header with-border"><i class="fa fa-shield fa-fw"></i><h3 class="box-title">安全说明</h3></div>
+		<div class="box-body" style="font-size:13px;line-height:1.8;color:#46526a">
+			<p style="margin:0 0 6px">· Secret 只在创建/重置时显示一次，服务器使用系统密钥加密保存。</p>
+			<p style="margin:0 0 6px">· API 无法读取任何DNS账户、证书账户、部署服务器的密钥，也不能修改这些账户、用户和系统设置。</p>
+			<p style="margin:0 0 6px">· SSH、FTP、复制到本机、S3存储类型的部署任务只能在后台创建和修改，API只能执行。</p>
+			<p style="margin:0 0 6px">· 同一IP连续认证失败20次将被封禁15分钟。</p>
+			<p style="margin:0">· 建议按用途分开创建密钥，只给需要的权限、域名和IP。</p>
+		</div>
+	</div>
+</div>
+</div>
+
+<div class="modal fade" id="formModal" tabindex="-1" role="dialog">
+<div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+	<div class="modal-header">
+		<button type="button" class="close" data-dismiss="modal" aria-label="关闭"><span aria-hidden="true">&times;</span></button>
+		<h4 class="modal-title" id="formTitle">创建API密钥</h4>
+	</div>
+	<form id="keyForm" onsubmit="return submitForm()">
+	<div class="modal-body">
+		<input type="hidden" name="id">
+		<div class="row">
+			<div class="col-sm-6 form-group">
+				<label>名称</label>
+				<input type="text" class="form-control" name="name" maxlength="64" placeholder="如：Hermes 自动化、家里路由器DDNS" required>
+			</div>
+			<div class="col-sm-6 form-group">
+				<label>所属用户</label>
+				<select class="form-control" name="uid">
+					{foreach $users as $u}<option value="{$u.id}" data-level="{$u.level}">{$u.username}{if $u.level eq 2}（管理员）{else/}（普通用户，仅限其已授权域名）{/if}</option>{/foreach}
+				</select>
+			</div>
+		</div>
+		<div class="form-group">
+			<label>权限</label>
+			<div class="preset-bar">
+				<span class="text-muted" style="font-size:13px;margin-right:2px">常用组合</span>
+				{foreach $presets as $pk => $p}<button type="button" class="btn btn-default btn-xs" onclick="applyPreset('{$pk}')">{$p.name}</button>{/foreach}
+				<button type="button" class="btn btn-default btn-xs" onclick="applyPreset('')">清空</button>
+			</div>
+			<div id="scopeBox" class="scope-box">
+				{php}$groups = []; foreach ($scopes as $sk => $sv) { $groups[$sv['group']][$sk] = $sv; }{/php}
+				{foreach $groups as $gname => $items}
+				<div class="scope-group">
+					<div class="scope-group-title">{$gname}</div>
+					{foreach $items as $sk => $sv}
+					<label title="{$sv.desc}" data-admin="{$sv.admin ? 1 : 0}" data-nodomain="{$sv.nodomain ? 1 : 0}"><input type="checkbox" name="scopes[]" value="{$sk}"> {$sv.name} <small>{$sk}</small></label>
+					{/foreach}
+				</div>
+				{/foreach}
+			</div>
+			<p class="help-block" id="scopeTip">鼠标悬停在权限上可以查看说明。“下载证书私钥”权限高度敏感，请谨慎授予。</p>
+		</div>
+		<div class="row">
+			<div class="col-sm-6 form-group">
+				<label>域名范围</label>
+				<textarea class="form-control" name="domains" rows="4" placeholder="留空表示不限制；填写后只能操作这些域名及其子域名&#10;每行一个系统中已添加的主域名，如：&#10;example.com"></textarea>
+				<p class="help-block domain-picks">点击添加：{volist name="domains" id="d" length="12"}<a href="javascript:;" data-domain="{$d}">{$d}</a>{/volist}{if count($domains) > 12}<span class="text-muted">…</span>{/if}</p>
+			</div>
+			<div class="col-sm-6 form-group">
+				<label>IP白名单</label>
+				<textarea class="form-control mono" name="ipwhitelist" rows="4" placeholder="每行一个，支持 IPv4/IPv6/CIDR，留空表示不限制&#10;如：203.0.113.8&#10;10.0.0.0/8"></textarea>
+				<p class="help-block">你当前的IP：<a href="javascript:;" onclick="addIp('{$myip}')" class="mono">{$myip}</a></p>
+			</div>
+		</div>
+		<div class="row">
+			<div class="col-sm-4 form-group">
+				<label>频率限制（次/分钟）</label>
+				<input type="number" class="form-control" name="ratelimit" min="0" max="100000" value="120">
+				<p class="help-block">0 表示不限制</p>
+			</div>
+			<div class="col-sm-4 form-group">
+				<label>过期时间</label>
+				<input type="datetime-local" class="form-control" name="expiretime">
+				<p class="help-block">留空表示永不过期</p>
+			</div>
+			<div class="col-sm-4 form-group">
+				<label>备注</label>
+				<input type="text" class="form-control" name="remark" maxlength="255">
+			</div>
+		</div>
+	</div>
+	<div class="modal-footer">
+		<button type="button" class="btn btn-default" data-dismiss="modal">取消</button>
+		<button type="submit" class="btn btn-primary" id="formSubmit">创建密钥</button>
+	</div>
+	</form>
+</div></div>
+</div>
+
+<div class="modal fade" id="tokenModal" tabindex="-1" role="dialog" data-backdrop="static">
+<div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+	<div class="modal-header"><h4 class="modal-title">请立即保存密钥</h4></div>
+	<div class="modal-body">
+		<div class="alert alert-warning" style="margin-bottom:16px"><i class="fa fa-exclamation-triangle"></i> Secret 只显示这一次，关闭后无法再次查看。如果丢失，只能“重置Secret”生成新的。</div>
+		<div class="secret-grid">
+			<span class="k">KeyID</span><span class="v" id="tokenKeyid"></span><button class="btn btn-default btn-sm" data-copy="#tokenKeyid"><i class="fa fa-copy"></i> 复制</button>
+			<span class="k">Secret</span><span class="v" id="tokenSecret"></span><button class="btn btn-default btn-sm" data-copy="#tokenSecret"><i class="fa fa-copy"></i> 复制</button>
+		</div>
+		<div class="api-code-title" style="margin-top:18px">测试调用（复制到终端执行）</div>
+		<div class="code-wrap"><button class="btn-copy" data-copy="#tokenExample"><i class="fa fa-copy"></i> 复制</button><pre class="code" id="tokenExample"></pre></div>
+	</div>
+	<div class="modal-footer">
+		<button type="button" class="btn btn-default" id="copyBoth"><i class="fa fa-copy"></i> 复制 KeyID 和 Secret</button>
+		<button type="button" class="btn btn-primary" data-dismiss="modal">我已保存</button>
+	</div>
+</div></div>
+</div>
+{/block}
+{block name="script"}
+<script src="/static/js/layer/layer.js"></script>
+<script>
+var SCOPES = {:json_encode($scopes, JSON_UNESCAPED_UNICODE)};
+var PRESETS = {:json_encode($presets, JSON_UNESCAPED_UNICODE)};
+var SITE = {:json_encode($siteurl)};
+var SETTINGS = {api_key_open: {:json_encode(config_get('api_key_open', '1'))}, api_log: {:json_encode(config_get('api_log', '1'))}, api_ip_source: {:json_encode(config_get('api_ip_source', 'auto'))}};
+var rows = [];
+
+function esc(s) {
+	return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+}
+function scopeChip(s) {
+	var cls = s == 'cert:download' ? ' is-danger' : (/:write$/.test(s) ? ' is-write' : '');
+	return '<span class="scope-chip' + cls + '" title="' + esc(SCOPES[s] ? SCOPES[s].name : s) + '">' + esc(s) + '</span>';
+}
+function load() {
+	$.post('/apikey/data', {}, function(res) {
+		rows = res.rows || [];
+		if (!rows.length) {
+			$('#keyList').html('<tr><td colspan="7"><div class="zn-empty"><div class="zn-empty-icon"><i class="fa fa-key"></i></div><h4>还没有API密钥</h4><p>创建一个密钥，就可以用脚本、自动化工具或AI助手管理解析、申请和推送证书。</p><button class="btn btn-primary" onclick="openForm()"><i class="fa fa-plus"></i> 创建第一个密钥</button></div></td></tr>');
+			return;
+		}
+		var html = '';
+		rows.forEach(function(r) {
+			var scopes = r.scopes.length > 4 ? r.scopes.slice(0, 4).map(scopeChip).join('') + '<span class="scope-chip">+' + (r.scopes.length - 4) + '</span>' : r.scopes.map(scopeChip).join('');
+			var limits = [];
+			limits.push(r.domains.length ? '域名：' + esc(r.domains.slice(0, 2).join('、')) + (r.domains.length > 2 ? ' 等' + r.domains.length + '个' : '') : '全部域名');
+			if (r.ipwhitelist.length) limits.push('IP：' + esc(r.ipwhitelist.slice(0, 2).join('、')) + (r.ipwhitelist.length > 2 ? '…' : ''));
+			limits.push(r.ratelimit > 0 ? r.ratelimit + '次/分' : '不限频率');
+			if (r.expiretime) limits.push((r.expired ? '<span class="text-danger">已过期 ' : '到期 ') + esc(r.expiretime.substr(0, 16)) + (r.expired ? '</span>' : ''));
+			var status = r.expired ? '<span class="label label-default">已过期</span>' : '<label class="zn-switch" title="' + (r.status == 1 ? '已启用，点击禁用' : '已禁用，点击启用') + '"><input type="checkbox" ' + (r.status == 1 ? 'checked' : '') + ' onchange="setStatus(' + r.id + ', this.checked ? 1 : 0, this)"><span></span></label>';
+			html += '<tr>' +
+				'<td><div class="zn-key-name">' + esc(r.name) + '</div><div class="zn-key-meta">' + esc(r.username || '用户已删除') + (r.remark ? '，' + esc(r.remark) : '') + '</div></td>' +
+				'<td class="mono" style="white-space:nowrap">' + esc(r.keyid) + '</td>' +
+				'<td style="max-width:280px">' + scopes + '</td>' +
+				'<td style="font-size:12px;line-height:1.7">' + limits.join('<br>') + '</td>' +
+				'<td style="font-size:12px;white-space:nowrap">' + (r.lasttime ? esc(r.lasttime) + '<div class="text-muted mono">' + esc(r.lastip) + ' · ' + r.calls + '次</div>' : '<span class="text-muted">从未使用</span>') + '</td>' +
+				'<td>' + status + '</td>' +
+				'<td style="white-space:nowrap">' +
+					'<a href="javascript:openForm(' + r.id + ')" class="btn btn-default btn-xs">编辑</a> ' +
+
+					'<div class="btn-group"><button type="button" class="btn btn-default btn-xs dropdown-toggle" data-toggle="dropdown">更多 <span class="caret"></span></button>' +
+					'<ul class="dropdown-menu dropdown-menu-right"><li><a href="javascript:resetKey(' + r.id + ')">重置Secret</a></li><li><a href="/log?kw=' + encodeURIComponent('API:' + r.name) + '">查看调用日志</a></li><li class="divider"></li><li><a href="javascript:delKey(' + r.id + ')" class="text-danger">删除</a></li></ul></div>' +
+				'</td></tr>';
+		});
+		$('#keyList').html(html);
+	}, 'json');
+}
+function updateScopeAvailability() {
+	var isAdmin = $('#keyForm select[name=uid] option:selected').data('level') == 2;
+	var hasDomains = $.trim($('#keyForm textarea[name=domains]').val()) !== '';
+	$('#scopeBox label').each(function() {
+		var blocked = ($(this).data('admin') == 1 && !isAdmin) || ($(this).data('nodomain') == 1 && hasDomains);
+		var cb = $(this).find('input');
+		if (blocked) cb.prop('checked', false);
+		cb.prop('disabled', blocked);
+		$(this).toggleClass('is-disabled', blocked);
+	});
+	var tips = [];
+	if (!isAdmin) tips.push('普通用户的密钥只能使用域名、解析和日志相关权限，且只能操作该用户已授权的域名');
+	if (hasDomains) tips.push('设置了域名范围后，容灾、定时切换、优选IP和CF增强权限不可用');
+	$('#scopeTip').text(tips.length ? tips.join('；') + '。' : '鼠标悬停在权限上可以查看说明。“下载证书私钥”权限高度敏感，请谨慎授予。');
+}
+function applyPreset(k) {
+	$('#scopeBox input').prop('checked', false);
+	if (k && PRESETS[k]) PRESETS[k].scopes.forEach(function(s) { $('#scopeBox input[value="' + s + '"]').prop('checked', true); });
+	updateScopeAvailability();
+}
+function addDomain(d) {
+	var t = $('#keyForm textarea[name=domains]');
+	var v = $.trim(t.val());
+	if ((v + '\n').indexOf(d + '\n') == -1) t.val(v ? v + '\n' + d : d);
+}
+function addIp(ip) {
+	var t = $('#keyForm textarea[name=ipwhitelist]');
+	var v = $.trim(t.val());
+	if ((v + '\n').indexOf(ip + '\n') == -1) t.val(v ? v + '\n' + ip : ip);
+}
+function openForm(id) {
+	var f = $('#keyForm')[0];
+	f.reset();
+	$('#keyForm input[name=id]').val('');
+	$('#scopeBox input').prop('checked', false);
+	if (id) {
+		var r = rows.filter(function(x) { return x.id == id; })[0];
+		if (!r) return;
+		$('#formTitle').text('编辑API密钥');
+		$('#formSubmit').text('保存修改');
+		$('#keyForm input[name=id]').val(r.id);
+		$('#keyForm input[name=name]').val(r.name);
+		$('#keyForm select[name=uid]').val(r.uid);
+		r.scopes.forEach(function(s) { $('#scopeBox input[value="' + s + '"]').prop('checked', true); });
+		$('#keyForm textarea[name=domains]').val(r.domains.join('\n'));
+		$('#keyForm textarea[name=ipwhitelist]').val(r.ipwhitelist.join('\n'));
+		$('#keyForm input[name=ratelimit]').val(r.ratelimit);
+		$('#keyForm input[name=expiretime]').val(r.expiretime ? r.expiretime.replace(' ', 'T').substr(0, 16) : '');
+		$('#keyForm input[name=remark]').val(r.remark || '');
+	} else {
+		$('#formTitle').text('创建API密钥');
+		$('#formSubmit').text('创建密钥');
+		applyPreset('dns');
+	}
+	updateScopeAvailability();
+	$('#formModal').modal('show');
+}
+function submitForm() {
+	var id = $('#keyForm input[name=id]').val();
+	if (!$('#scopeBox input:checked').length) { layer.msg('请至少选择一项权限', {icon: 2}); return false; }
+	var data = $('#keyForm').serialize();
+	var ii = layer.load(2);
+	$.post('/apikey/' + (id ? 'edit' : 'add'), data, function(res) {
+		layer.close(ii);
+		if (res.code == 0) {
+			$('#formModal').modal('hide');
+			load();
+			if (res.secret) showToken(res.keyid, res.secret);
+			else layer.msg(res.msg, {icon: 1});
+		} else {
+			layer.alert(res.msg, {icon: 2});
+		}
+	}, 'json').fail(function() { layer.close(ii); layer.msg('服务器错误', {icon: 2}); });
+	return false;
+}
+function showToken(keyid, secret) {
+	$('#tokenKeyid').text(keyid);
+	$('#tokenSecret').text(secret);
+	$('#tokenExample').text('KEYID="' + keyid + '"; SECRET="' + secret + '"\n' +
+		'TS=$(date +%s); SIGN=$(printf \'%s\' "$KEYID$TS$SECRET" | md5sum | cut -d\' \' -f1)\n' +
+		'curl -X POST "' + SITE + '/api/domain" -d "keyid=$KEYID" -d "timestamp=$TS" -d "sign=$SIGN" -d "offset=0" -d "limit=10"');
+	$('#tokenModal').modal('show');
+}
+function setStatus(id, status, el) {
+	$.post('/apikey/status', {id: id, status: status}, function(res) {
+		if (res.code == 0) { layer.msg(res.msg, {icon: 1, time: 1200}); setTimeout(load, 300); }
+		else { if (el) el.checked = !el.checked; layer.alert(res.msg, {icon: 2}); }
+	}, 'json').fail(function() { if (el) el.checked = !el.checked; layer.msg('服务器错误', {icon: 2}); });
+}
+function resetKey(id) {
+	layer.confirm('重置后旧的Secret立即失效（KeyID不变），使用它的程序需要更新。确定重置吗？', {icon: 3, title: '重置Secret', btn: ['重置', '取消']}, function(i) {
+		layer.close(i);
+		$.post('/apikey/reset', {id: id}, function(res) {
+			if (res.code == 0) { load(); showToken(res.keyid, res.secret); } else layer.alert(res.msg, {icon: 2});
+		}, 'json');
+	});
+}
+function delKey(id) {
+	layer.confirm('删除后使用该密钥的程序将无法调用API，且无法恢复。确定删除吗？', {icon: 3, title: '删除密钥', btn: ['删除', '取消']}, function(i) {
+		layer.close(i);
+		$.post('/apikey/del', {id: id}, function(res) {
+			if (res.code == 0) { layer.msg(res.msg, {icon: 1}); load(); } else layer.alert(res.msg, {icon: 2});
+		}, 'json');
+	});
+}
+function saveSetting() {
+	$.post('/system/set', $('#settingForm').serialize(), function(res) {
+		if (res.code == 0) layer.msg('设置已保存', {icon: 1}); else layer.alert(res.msg, {icon: 2});
+	}, 'json');
+	return false;
+}
+function copyText(text, done) {
+	if (navigator.clipboard && window.isSecureContext) {
+		navigator.clipboard.writeText(text).then(done);
+	} else {
+		var t = $('<textarea>').val(text).css({position: 'fixed', top: 0, opacity: 0}).appendTo('body');
+		t[0].select(); document.execCommand('copy'); t.remove(); done();
+	}
+}
+$(function() {
+	var ipSel = $('#settingForm select[name=api_ip_source]');
+	ipSel.find('option').each(function() { var t = $(this).text(); $(this).data('desc', t).text(t.split('：')[0]); });
+	ipSel.on('change', function() { var d = $(this).find('option:selected').data('desc') || ''; $('#ipSourceDesc').text(d.split('：').slice(1).join('：')); });
+	$.each(SETTINGS, function(k, v) { $('#settingForm [name=' + k + ']').val(v); });
+	ipSel.trigger('change');
+	$('#keyForm select[name=uid]').on('change', updateScopeAvailability);
+	$('#copyBoth').on('click', function() { copyText('KeyID: ' + $('#tokenKeyid').text() + '\nSecret: ' + $('#tokenSecret').text(), function() { layer.msg('已复制', {icon: 1}); }); });
+	$(document).on('click', '[data-copy]', function(e) { e.preventDefault(); var el = document.querySelector($(this).data('copy')); if (el) copyText(el.textContent, function() { layer.msg('已复制', {icon: 1, time: 1000}); }); });
+	$(document).on('click', '.domain-picks a[data-domain]', function() { addDomain($(this).data('domain')); updateScopeAvailability(); });
+	$('#keyForm textarea[name=domains]').on('input', updateScopeAvailability);
+	load();
+});
+</script>
+{/block}

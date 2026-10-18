@@ -76,6 +76,9 @@ class Optimizeip extends BaseController
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
         if ($this->request->isPost()) {
+            if ($this->request->isApi && in_array($action, ['add', 'edit', 'setactive', 'del', 'run'])) {
+                api_write_log('优选IP:' . $action, 'ID:' . input('post.id', '') . ' ' . input('post.rr', ''));
+            }
             if ($action == 'add') {
                 $task = [
                     'did' => input('post.did/d'),

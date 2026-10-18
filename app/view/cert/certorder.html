@@ -55,7 +55,7 @@ pre.pre-log{height: 330px;overflow-y: auto;width: 100%;background-color: rgba(51
 <script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
 <script src="/static/js/FileSaver-2.0.5.min.js"></script>
-<script src="/static/js/custom.js?v=1006"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
 $(document).ready(function(){
 	updateToolbar();
@@ -90,7 +90,7 @@ $(document).ready(function(){
 				sortable: true,
 				formatter: function(value, row, index) {
 					if(value){
-						return '<span title="'+row.aremark+'" data-toggle="tooltip" data-placement="right"><img src="/static/images/'+row.icon+'" class="type-logo">'+value+'('+row.aid+')</span>';
+						return '<span title="'+htmlEscape(row.aremark)+'" data-toggle="tooltip" data-placement="right"><img src="/static/images/'+row.icon+'" class="type-logo">'+value+'('+row.aid+')</span>';
 					}
 					return '手动续期';
 				}

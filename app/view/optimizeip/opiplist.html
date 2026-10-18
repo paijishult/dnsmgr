@@ -40,7 +40,7 @@ tbody tr>td:nth-child(2){overflow: hidden;text-overflow: ellipsis;white-space: n
 <script src="/static/js/layer/layer.js"></script>
 <script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
-<script src="/static/js/custom.js?v=1006"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
 $(document).ready(function(){
 	updateToolbar();
@@ -69,7 +69,7 @@ $(document).ready(function(){
 				title: '域名',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<span title="'+row.remark+'" data-toggle="tooltip" data-placement="right">' + value + '.' + row.domain + '</span>';
+					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + value + '.' + row.domain + '</span>';
 				}
 			},
 			{
@@ -139,7 +139,7 @@ $(document).ready(function(){
 					if(value == 1) {
 						return '<span class="label label-success">成功</span>';
 					} else if(value == 2) {
-						return '<span class="label label-danger">失败</span> <span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="'+row.errmsg+'" class="tips"><i class="fa fa-info-circle"></i></span>';
+						return '<span class="label label-danger">失败</span> <span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="'+htmlEscape(row.errmsg)+'" class="tips"><i class="fa fa-info-circle"></i></span>';
 					} else {
 						return '<span class="label label-warning">未运行</span>';
 					}

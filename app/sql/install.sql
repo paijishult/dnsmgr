@@ -5,7 +5,7 @@ CREATE TABLE `dnsmgr_config` (
   PRIMARY KEY (`key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-INSERT INTO `dnsmgr_config` VALUES ('version', '1049');
+INSERT INTO `dnsmgr_config` VALUES ('version', '1050');
 INSERT INTO `dnsmgr_config` VALUES ('notice_mail', '0');
 INSERT INTO `dnsmgr_config` VALUES ('notice_wxtpl', '0');
 INSERT INTO `dnsmgr_config` VALUES ('mail_smtp', 'smtp.qq.com');
@@ -274,4 +274,27 @@ CREATE TABLE `dnsmgr_domain_category` (
   `addtime` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `sort` (`sort`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+DROP TABLE IF EXISTS `dnsmgr_apikey`;
+CREATE TABLE `dnsmgr_apikey` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `uid` int(11) unsigned NOT NULL,
+  `name` varchar(64) NOT NULL,
+  `keyid` varchar(24) NOT NULL,
+  `secret` varchar(255) NOT NULL,
+  `scopes` text DEFAULT NULL,
+  `domains` text DEFAULT NULL,
+  `ipwhitelist` text DEFAULT NULL,
+  `ratelimit` int(11) NOT NULL DEFAULT '120',
+  `expiretime` datetime DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT '1',
+  `remark` varchar(255) DEFAULT NULL,
+  `addtime` datetime DEFAULT NULL,
+  `lasttime` datetime DEFAULT NULL,
+  `lastip` varchar(64) DEFAULT NULL,
+  `calls` int(11) unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `keyid` (`keyid`),
+  KEY `uid` (`uid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -128,12 +128,12 @@ function authcode($string, $operation = 'DECODE', $key = '', $expiry = 0)
 
 function random($length, $numeric = 0)
 {
-    $seed = base_convert(md5(microtime().$_SERVER['DOCUMENT_ROOT']), 16, $numeric ? 10 : 35);
+    $seed = base_convert(bin2hex(random_bytes(16)), 16, $numeric ? 10 : 35);
     $seed = $numeric ? (str_replace('0', '', $seed).'012340567890') : ($seed.'zZ'.strtoupper($seed));
     $hash = '';
     $max = strlen($seed) - 1;
     for ($i = 0; $i < $length; $i++) {
-        $hash .= $seed[mt_rand(0, $max)];
+        $hash .= $seed[random_int(0, $max)];
     }
     return $hash;
 }
@@ -205,6 +205,10 @@ function checkPermission($type, $domain = null)
     if (empty($user)) {
         return false;
     }
+    // API密钥限定了域名范围时，指定域名的操作必须在范围内
+    if ($domain !== null && !api_domain_allowed($domain)) {
+        return false;
+    }
     if ($user['level'] == 2) {
         return true;
     }
@@ -225,8 +229,8 @@ function getAdminSkin()
     if (empty($skin)) {
         $skin = config_get('admin_skin');
     }
-    if (empty($skin)) {
-        $skin = 'skin-black-blue';
+    if (empty($skin) || !preg_match('/^skin-[a-z\-]+$/', $skin) || !file_exists(public_path() . 'static/css/skins/' . $skin . '.css')) {
+        $skin = 'skin-modern';
     }
     return $skin;
 }
@@ -634,4 +638,111 @@ function checkTableExists($table)
     $prefix = env('database.prefix', 'dnsmgr_');
     $res = Db::query("SHOW TABLES LIKE '" . $prefix . $table . "'");
     return !empty($res);
+}
+
+/**
+ * 数据库版本升级检查（访问后台首页或开放API管理页时执行）
+ */
+function db_update_check()
+{
+    if (!config('app.dbversion') || config_get('version') == config('app.dbversion')) return;
+    $oldVersion = intval(config_get('version', 0));
+    $sqls = file_get_contents(app()->getAppPath() . 'sql/update.sql');
+    $mysql_prefix = env('database.prefix', 'dnsmgr_');
+    $sqls = explode(';', $sqls);
+    foreach ($sqls as $value) {
+        $value = trim($value);
+        if (empty($value)) continue;
+        $value = str_replace('dnsmgr_', $mysql_prefix, $value);
+        try {
+            Db::execute($value);
+        } catch (Exception $e) {
+        }
+    }
+    config_set('version', config('app.dbversion'));
+    if ($oldVersion > 0 && $oldVersion < 1050 && config_get('admin_skin')) {
+        // 升级到新版界面时切换为新的默认主题（之后仍可在右上角自行更换）
+        config_set('admin_skin', 'skin-modern');
+        \think\facade\Config::set(['admin_skin' => 'skin-modern'], 'sys');
+    }
+    \think\facade\Cache::clear();
+    if(Db::name('account')->count() > 0 && Db::name('account')->whereNotNull('config')->count() == 0) {
+        $accounts = Db::name('account')->select();
+        foreach ($accounts as $account) {
+            if (!empty($account['config']) || !isset(\app\lib\DnsHelper::$dns_config[$account['type']])) continue;
+            $config = [];
+            $account_fields = ['name', 'sk', 'ext'];
+            $i = 0;
+            foreach(\app\lib\DnsHelper::$dns_config[$account['type']]['config'] as $field => $item) {
+                if ($field == 'proxy') {
+                    $config[$field] = $account['proxy'];
+                    break;
+                }
+                if ($i >= 3) break;
+                $account_field = $account_fields[$i++];
+                $config[$field] = isset($account[$account_field]) ? $account[$account_field] : '';
+            }
+            Db::name('account')->where('id', $account['id'])->update(['config' => json_encode($config)]);
+        }
+    }
+}
+
+/**
+ * 当前API密钥限定的域名范围（未限定返回null）
+ */
+function api_domains()
+{
+    $user = request()->user;
+    return !empty($user['api_domains']) ? $user['api_domains'] : null;
+}
+
+/**
+ * 域名（含子域名、通配符）是否在当前API密钥的域名范围内
+ */
+function api_domain_allowed($name)
+{
+    $domains = api_domains();
+    if ($domains === null) return true;
+    $name = strtolower(trim((string)$name));
+    if (str_starts_with($name, '*.')) $name = substr($name, 2);
+    $variants = array_unique(array_filter([$name, convertDomainToAscii($name), convertDomainToUtf8($name)]));
+    foreach ($domains as $zone) {
+        $zone = strtolower($zone);
+        foreach ($variants as $v) {
+            if ($v === $zone || str_ends_with($v, '.' . $zone)) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * 当前API密钥是否拥有某个权限（非API密钥调用返回true）
+ */
+function api_has_scope($scope)
+{
+    $key = request()->apiKey ?? null;
+    if (empty($key)) return true;
+    return in_array($scope, $key['scopes'], true);
+}
+
+/**
+ * 记录通过API执行的修改操作（可在后台「API密钥」页面关闭）
+ */
+function api_write_log($action, $data, $domain = '')
+{
+    $request = request();
+    if (empty($request->isApi)) return;
+    if (!empty($request->apiKey)) {
+        if (config_get('api_log', '1') != '1') return;
+        $data .= ' [API:' . $request->apiKey['name'] . ']';
+    } else {
+        $data .= ' [API]';
+    }
+    Db::name('log')->insert([
+        'uid' => $request->user['id'] ?? 0,
+        'action' => mb_substr((string)$action, 0, 40),
+        'domain' => (string)$domain,
+        'data' => mb_strcut((string)$data, 0, 500),
+        'addtime' => date('Y-m-d H:i:s'),
+    ]);
 }

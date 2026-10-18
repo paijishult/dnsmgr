@@ -175,24 +175,112 @@ Route::group(function () {
     Route::post('/system/proxytest', 'system/proxytest');
     Route::get('/system/cronset', 'system/cronset');
 
+    Route::get('/apikey/doc', 'apikey/doc');
+    Route::post('/apikey/data', 'apikey/data');
+    Route::post('/apikey/:action', 'apikey/op');
+    Route::get('/apikey', 'apikey/index');
+
 })->middleware(CheckLogin::class)
 ->middleware(ViewOutput::class);
 
+// ======================= API接口 =======================
+// 鉴权方式：用户API（uid + timestamp + sign）或 后台创建的API密钥（keyid + timestamp + sign，按权限范围控制）
+// option scope：调用该接口需要的API密钥权限，可按 action / act 参数区分（* 为默认）
 Route::group('api', function () {
-    Route::post('/domain/:id', 'domain/domain_info');
-    Route::post('/domain', 'domain/domain_data');
-    
-    Route::post('/record/data/:id', 'domain/record_data');
-    Route::post('/record/add/:id', 'domain/record_add');
-    Route::post('/record/update/:id', 'domain/record_update');
-    Route::post('/record/delete/:id', 'domain/record_delete');
-    Route::post('/record/status/:id', 'domain/record_status');
-    Route::post('/record/remark/:id', 'domain/record_remark');
-    Route::post('/record/batch/:id', 'domain/record_batch');
+    // 域名
+    Route::post('/domain/list', 'domain/domain_list')->option(['scope' => 'domain:write']);
+    Route::post('/domain/op', 'domain/domain_op')->option(['scope' => ['get' => 'domain:read', '*' => 'domain:write']]);
+    Route::post('/domain/updatedate', 'domain/update_date')->option(['scope' => 'domain:write']);
+    Route::post('/domain/setcategory', 'domain/domain_set_category')->option(['scope' => 'domain:write']);
+    Route::post('/domain/category/list', 'domain/category_list')->option(['scope' => 'domain:read']);
+    Route::post('/domain/category/data', 'domain/category_data')->option(['scope' => 'domain:read']);
+    Route::post('/domain/category/:action', 'domain/category_op')->option(['scope' => 'domain:write']);
+    Route::post('/domain/:id', 'domain/domain_info')->option(['scope' => 'domain:read']);
+    Route::post('/domain', 'domain/domain_data')->option(['scope' => 'domain:read']);
+    Route::post('/account/data', 'domain/account_data')->option(['scope' => 'domain:read']);
 
-    Route::post('/cert/order', 'cert/order_info');
+    // 解析记录
+    Route::post('/record/data/:id', 'domain/record_data')->option(['scope' => 'record:read']);
+    Route::post('/record/list', 'domain/record_list')->option(['scope' => 'record:read']);
+    Route::post('/record/quickinfo/:id', 'domain/quickinfo')->option(['scope' => 'record:read']);
+    Route::post('/record/groups/:id', 'domain/record_groups')->option(['scope' => 'record:read']);
+    Route::post('/record/check/:id', 'domain/record_check')->option(['scope' => 'record:read']);
+    Route::post('/record/log/:id', 'domain/record_log')->option(['scope' => 'record:read']);
+    Route::post('/record/add/:id', 'domain/record_add')->option(['scope' => 'record:write']);
+    Route::post('/record/update/:id', 'domain/record_update')->option(['scope' => 'record:write']);
+    Route::post('/record/delete/:id', 'domain/record_delete')->option(['scope' => 'record:write']);
+    Route::post('/record/status/:id', 'domain/record_status')->option(['scope' => 'record:write']);
+    Route::post('/record/remark/:id', 'domain/record_remark')->option(['scope' => 'record:write']);
+    Route::post('/record/batch/:id', 'domain/record_batch')->option(['scope' => 'record:write']);
+    Route::post('/record/batchedit/:id', 'domain/record_batch_edit')->option(['scope' => 'record:write']);
+    Route::post('/record/batchadd/:id', 'domain/record_batch_add')->option(['scope' => 'record:write']);
+    Route::post('/record/batchedit2', 'domain/record_batch_edit2')->option(['scope' => 'record:write']);
+    Route::post('/record/weight/data/:id', 'domain/weight_data')->option(['scope' => 'record:read']);
+    Route::post('/record/weight/:id', 'domain/weight')->option(['scope' => 'record:write']);
+    Route::post('/record/alias/:id', 'domain/alias')->option(['scope' => ['list' => 'domain:read', '*' => 'domain:write']]);
 
-})->middleware(AuthApi::class);
+    // Cloudflare 增强（SaaS自定义主机名 / Tunnel）
+    Route::post('/cloudflare/hostnames/data/:id', 'cloudflare/hostnames_data')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/hostnames/txttargets/:id', 'cloudflare/hostnames_txt_targets')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/hostnames/add/:id', 'cloudflare/hostnames_add')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/hostnames/update/:id', 'cloudflare/hostnames_update')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/hostnames/delete/:id', 'cloudflare/hostnames_delete')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/hostnames/refresh/:id', 'cloudflare/hostnames_refresh')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/hostnames/batch_add/:id', 'cloudflare/hostnames_batch_add')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/hostnames/batch_delete/:id', 'cloudflare/hostnames_batch_delete')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/hostnames/batch_update/:id', 'cloudflare/hostnames_batch_update')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/fallback/get/:id', 'cloudflare/fallback_get')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/fallback/set/:id', 'cloudflare/fallback_set')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/fallback/delete/:id', 'cloudflare/fallback_delete')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/dcv_delegation_uuid/:id', 'cloudflare/dcv_delegation_uuid')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/tunnels/data/:id', 'cloudflare/tunnels_data')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/tunnels/add/:id', 'cloudflare/tunnels_add')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/tunnels/delete/:id', 'cloudflare/tunnels_delete')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/tunnels/publichostnames/data/:id', 'cloudflare/tunnels_public_hostnames_data')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/tunnels/publichostnames/save/:id', 'cloudflare/tunnels_public_hostnames_save')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/tunnels/publichostnames/delete/:id', 'cloudflare/tunnels_public_hostnames_delete')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/tunnels/cidr/data/:id', 'cloudflare/tunnels_cidr_data')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/tunnels/cidr/add/:id', 'cloudflare/tunnels_cidr_add')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/tunnels/cidr/delete/:id', 'cloudflare/tunnels_cidr_delete')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/tunnels/hostnameroutes/data/:id', 'cloudflare/tunnels_hostname_routes_data')->option(['scope' => 'cloudflare:read']);
+    Route::post('/cloudflare/tunnels/hostnameroutes/add/:id', 'cloudflare/tunnels_hostname_routes_add')->option(['scope' => 'cloudflare:write']);
+    Route::post('/cloudflare/tunnels/hostnameroutes/delete/:id', 'cloudflare/tunnels_hostname_routes_delete')->option(['scope' => 'cloudflare:write']);
+
+    // SSL证书
+    Route::post('/cert/order', 'cert/order_info')->option(['scope' => 'cert:download']);
+    Route::post('/cert/order/data', 'cert/order_data')->option(['scope' => 'cert:read']);
+    Route::post('/cert/order/process', 'cert/order_process')->option(['scope' => 'cert:write']);
+    Route::post('/cert/order/:action', 'cert/order_op')->option(['scope' => ['get' => 'cert:download', 'show_log' => 'cert:read', '*' => 'cert:write']]);
+    Route::post('/cert/account/data', 'cert/account_data')->option(['scope' => ['deploy=1' => 'deploy:read', '*' => 'cert:read']]);
+    Route::post('/cert/cname/data', 'cert/cname_data')->option(['scope' => 'cert:read']);
+    Route::post('/cert/cname/:action', 'cert/cname_op')->option(['scope' => ['check' => 'cert:read', '*' => 'cert:write']]);
+
+    // 证书部署（推送）
+    Route::post('/cert/deploy/data', 'cert/deploy_data')->option(['scope' => 'deploy:read']);
+    Route::post('/cert/deploy/process', 'cert/deploy_process')->option(['scope' => 'deploy:write']);
+    Route::post('/cert/deploy/:action', 'cert/deploy_op')->option(['scope' => ['show_log' => 'deploy:read', '*' => 'deploy:write']]);
+
+    // 容灾切换
+    Route::post('/dmonitor/task/data', 'dmonitor/task_data')->option(['scope' => 'monitor:read']);
+    Route::post('/dmonitor/task/log/data/:id', 'dmonitor/tasklog_data')->option(['scope' => 'monitor:read']);
+    Route::post('/dmonitor/task/:action', 'dmonitor/task_op')->option(['scope' => 'monitor:write']);
+
+    // 定时切换
+    Route::post('/schedule/stask/data', 'schedule/stask_data')->option(['scope' => 'schedule:read']);
+    Route::post('/schedule/stask/:action', 'schedule/stask_op')->option(['scope' => 'schedule:write']);
+
+    // CF优选IP
+    Route::post('/optimizeip/opiplist/data', 'optimizeip/opiplist_data')->option(['scope' => 'optimize:read']);
+    Route::post('/optimizeip/opipform/:action', 'optimizeip/opipform')->option(['scope' => 'optimize:write']);
+
+    // 操作日志与系统概览
+    Route::post('/log/data', 'user/log_data')->option(['scope' => 'log:read']);
+    Route::post('/stat', 'index/index')->option(['scope' => 'system:read']);
+
+    Route::miss(function () {
+        return json(['code' => -1, 'msg' => '接口不存在，API接口均为POST请求'])->code(404);
+    });
+})->completeMatch()->middleware(AuthApi::class);
 
 Route::miss(function() {
     return response('404 Not Found')->code(404);

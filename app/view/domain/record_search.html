@@ -125,7 +125,8 @@ $(document).ready(function(){
 				var icon = row.icon ? '<img src="/static/images/' + encodeURIComponent(row.icon) + '" class="type-logo" alt=""> ' : '';
 				return icon + name;
 			}},
-			{field: 'Name', title: '主机记录'},
+			{field: 'Name',
+				escape: true, title: '主机记录'},
 			{field: 'Type', title: '记录类型'},
 			{field: 'ValueText', title: '记录值'},
 			{field: 'LineName', title: '线路'},

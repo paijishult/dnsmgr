@@ -181,7 +181,7 @@
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
 <script src="/static/js/select2-4.0.13.min.js"></script>
 <script src="/static/js/select2-i18n-zh-CN-4.0.13.min.js"></script>
-<script src="/static/js/custom.js?v=1006"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
 var userLevel = "{$user['level']|default=''}";
 $(document).ready(function(){
@@ -216,7 +216,7 @@ $(document).ready(function(){
 				title: '平台账户',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<img src="/static/images/'+row.icon+'" class="type-logo"></img>'+(row.aremark?row.aremark:value+'('+row.aid+')');
+					return '<img src="/static/images/'+row.icon+'" class="type-logo"></img>'+(row.aremark?htmlEscape(row.aremark):value+'('+row.aid+')');
 				}
 			},
             {
@@ -320,6 +320,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'remark',
+				escape: true,
 				title: '备注',
 				sortable: true
 			},

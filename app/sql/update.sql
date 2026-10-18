@@ -213,3 +213,25 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_domain_category` (
 ALTER TABLE `dnsmgr_domain`
 ADD COLUMN `cid` int(11) unsigned NOT NULL DEFAULT '0',
 ADD KEY `cid` (`cid`);
+
+CREATE TABLE IF NOT EXISTS `dnsmgr_apikey` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `uid` int(11) unsigned NOT NULL,
+  `name` varchar(64) NOT NULL,
+  `keyid` varchar(24) NOT NULL,
+  `secret` varchar(255) NOT NULL,
+  `scopes` text DEFAULT NULL,
+  `domains` text DEFAULT NULL,
+  `ipwhitelist` text DEFAULT NULL,
+  `ratelimit` int(11) NOT NULL DEFAULT '120',
+  `expiretime` datetime DEFAULT NULL,
+  `status` tinyint(1) NOT NULL DEFAULT '1',
+  `remark` varchar(255) DEFAULT NULL,
+  `addtime` datetime DEFAULT NULL,
+  `lasttime` datetime DEFAULT NULL,
+  `lastip` varchar(64) DEFAULT NULL,
+  `calls` int(11) unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `keyid` (`keyid`),
+  KEY `uid` (`uid`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

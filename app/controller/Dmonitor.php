@@ -84,6 +84,9 @@ class Dmonitor extends BaseController
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
+        if ($this->request->isApi && in_array($action, ['add', 'edit', 'setactive', 'del', 'operation'])) {
+            api_write_log('容灾策略:' . $action, 'ID:' . (input('post.id') ?: implode(',', (array)input('post.ids', []))) . ' ' . input('post.rr', ''));
+        }
         if ($action == 'add') {
             $task = [
                 'did' => input('post.did/d'),

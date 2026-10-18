@@ -1,0 +1,10 @@
+.git
+.github/workflows
+.idea
+.vscode
+vendor
+runtime/*
+!runtime/.gitignore
+.env
+*.log
+node_modules

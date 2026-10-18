@@ -1,59 +1,84 @@
-# 手动触发：构建多架构镜像（amd64 / arm64），仅推送 latest 至 Docker Hub 与华为云 SWR。
-# Dockerfile 与构建上下文位于 .github/docker/ 目录。
+# 构建多架构镜像（amd64 / arm64）并推送到 GitHub Container Registry（ghcr.io）
+# 推送到 main 分支或手动运行时触发，使用本仓库源码构建，无需额外配置密钥。
 #
-# 需在仓库 Settings → Secrets 中配置：
-#   DOCKERHUB_USERNAME / DOCKERHUB_TOKEN（Docker Hub 访问令牌）
-#   HUAWEI_SWR_USERNAME / HUAWEI_SWR_PASSWORD（华为云 SWR 登录凭证，与本地 docker login swr.cn-east-3.myhuaweicloud.com 一致）
+# 可选：如需同时推送到 Docker Hub，在仓库 Settings → Secrets and variables → Actions 中配置
+#   DOCKERHUB_USERNAME / DOCKERHUB_TOKEN（镜像名为 <DOCKERHUB_USERNAME>/dnsmgr）
 
 name: Docker Build
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   workflow_dispatch:
+
+concurrency:
+  group: docker-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 150
     permissions:
       contents: read
+      packages: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
+
+      - name: Prepare image names
+        id: meta
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          tags="ghcr.io/${owner}/dnsmgr:latest,ghcr.io/${owner}/dnsmgr:sha-${GITHUB_SHA::7}"
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            tags="${tags},${DOCKERHUB_USERNAME}/dnsmgr:latest"
+            echo "dockerhub=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tags=${tags}" >> "$GITHUB_OUTPUT"
+          echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4.6.0
+        if: steps.meta.outputs.dockerhub == 'true'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Log in to Huawei SWR
-        uses: docker/login-action@v4.6.0
+      - name: Build and push
+        uses: docker/build-push-action@v6
         with:
-          registry: swr.cn-east-3.myhuaweicloud.com
-          username: ${{ secrets.HUAWEI_SWR_USERNAME }}
-          password: ${{ secrets.HUAWEI_SWR_PASSWORD }}
-
-      - name: Build and push (Docker Hub + Huawei SWR, latest only)
-        uses: docker/build-push-action@v7
-        with:
-          context: .github/docker
+          context: .
           file: .github/docker/Dockerfile
           platforms: linux/amd64,linux/arm64
-          outputs: type=registry,oci-mediatypes=false
-          # 每次运行唯一，打破「下载源码 + composer」等层的缓存，否则会一直用首次构建时的层
-          build-args: |
-            CACHE_BUST=${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          # 避免向仓库推送 attestations；部分镜像仓库（含部分 SWR 场景）无法解析导致 “fail to parse manifest.json”
+          push: true
           provenance: false
           sbom: false
-          tags: |
-            netcccyun/dnsmgr:latest
-            swr.cn-east-3.myhuaweicloud.com/netcccyun/dnsmgr:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+            org.opencontainers.image.title=dnsmgr
+            org.opencontainers.image.description=彩虹聚合DNS管理系统（含开放API）
           cache-from: type=gha
           cache-to: type=gha,mode=max

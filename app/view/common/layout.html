@@ -10,30 +10,27 @@
   <link href="/static/css/font-awesome-4.7.0.min.css" rel="stylesheet"/>
   <link href="/static/css/select2-4.0.13.min.css" rel="stylesheet"/>
   <link href="/static/css/app.min.css" rel="stylesheet">
-  <link href="/static/css/skins/{$skin}.css" rel="stylesheet">
   <link href="/static/css/bootstrap-table.css?v=2" rel="stylesheet"/>
-  {if file_exists(public_path() . 'static/css/custom.css')}
+  <link href="/static/css/modern.css?v={:config('app.version')}" rel="stylesheet">
+  <link href="/static/css/skins/{$skin}.css?v={:config('app.version')}" rel="stylesheet">
+  {if file_exists(public_path() . 'static/css/custom.css') && filesize(public_path() . 'static/css/custom.css') > 0}
   <link href="/static/css/custom.css" rel="stylesheet">
   {/if}
   <script src="/static/js/jquery-3.7.1.min.js"></script>
-  <!--[if lt IE 9]>
-    <script src="/static/js/html5shiv-3.7.3.min.js"></script>
-    <script src="/static/js/respond-1.4.2.min.js"></script>
-  <![endif]-->
   <style>
     .type-logo{width: 18px;margin-top: -2px;padding-right: 4px;}
   </style>
 </head>
 
-<body class="hold-transition {$skin} sidebar-mini">
+<body class="hold-transition {$skin} sidebar-mini fixed">
   <div class="wrapper">
     <header class="main-header">
       <!-- Logo -->
-      <a href="javascript:;" class="logo">
+      <a href="/" class="logo">
         <!-- mini logo for sidebar mini 50x50 pixels -->
-        <span class="logo-mini"><i class="fa fa-cube"></i></span>
+        <span class="logo-mini"><span class="zn-logo-icon"><i class="fa fa-sitemap"></i></span></span>
         <!-- logo for regular state and mobile devices -->
-        <span class="logo-lg"></span>聚合DNS管理系统
+        <span class="logo-lg"><span class="zn-logo-icon"><i class="fa fa-sitemap"></i></span>聚合DNS管理</span>
       </a>
       <!-- Header Navbar: style can be found in header.less -->
       <nav class="navbar navbar-static-top">
@@ -44,10 +41,14 @@
           <span class="icon-bar"></span>
           <span class="icon-bar"></span>
         </a>
-  
+        <span class="zn-page-title" id="znPageTitle"></span>
+
         <div class="navbar-custom-menu">
           <ul class="nav navbar-nav">
             <li>
+              <a href="javascript:;" class="zn-search-btn" id="znSearchBtn" title="快速搜索与跳转"><i class="fa fa-search"></i><span class="zn-search-text">搜索域名或功能</span><kbd id="znSearchKbd">⌘K</kbd></a>
+            </li>
+            <li class="hidden-xs">
               <a href="/" title="平台首页"><i class="fa fa-home fa-fw"></i></a>
             </li>
             <li class="hidden-xs">
@@ -103,7 +104,7 @@
         <!-- sidebar menu: : style can be found in sidebar.less -->
         <ul class="sidebar-menu" data-widget="tree">
           <li class="header">功能导航</li>
-          {if request()->user['type'] eq 'user'}<li class="{:checkIfActive('index')}">
+          {if request()->user['type'] eq 'user'}<li class="{if request()->controller() == 'Index' && request()->action() == 'index'}active{/if}">
             <a href="/"><i class="fa fa-home fa-fw"></i> <span>后台首页</span></a>
           </li>{/if}
           <li class="{:checkIfActive('domain,record,record_log,record_batch_add,record_import,domain_add,weight,record_batch_add2,record_batch_edit2,expire_notice,smartparse')}">
@@ -162,6 +163,19 @@
               <li class="{:checkIfActive('opiplist,opipform')}"><a href="/optimizeip/opiplist"><i class="fa fa-circle-o"></i> 任务管理</a></li>
             </ul>
           </li>
+          <li class="treeview {if request()->controller() == 'Apikey'}active menu-open{/if}">
+            <a href="javascript:;">
+              <i class="fa fa-key fa-fw"></i>
+              <span>API接口</span>
+              <span class="pull-right-container">
+                <i class="fa fa-angle-left pull-right"></i>
+              </span>
+            </a>
+            <ul class="treeview-menu">
+              <li class="{if request()->controller() == 'Apikey' && request()->action() == 'index'}active{/if}"><a href="/apikey"><i class="fa fa-circle-o"></i> API密钥</a></li>
+              <li class="{if request()->controller() == 'Apikey' && request()->action() == 'doc'}active{/if}"><a href="/apikey/doc"><i class="fa fa-circle-o"></i> 接口文档</a></li>
+            </ul>
+          </li>
           <li class="treeview {:checkIfActive('cronset,loginset,noticeset,proxyset')}">
             <a href="javascript:;">
               <i class="fa fa-cogs fa-fw"></i>
@@ -175,7 +189,6 @@
               <li class="{:checkIfActive('loginset')}"><a href="/system/loginset"><i class="fa fa-circle-o"></i> 登录设置</a></li>
               <li class="{:checkIfActive('noticeset')}"><a href="/system/noticeset"><i class="fa fa-circle-o"></i> 通知设置</a></li>
               <li class="{:checkIfActive('proxyset')}"><a href="/system/proxyset"><i class="fa fa-circle-o"></i> 代理设置</a></li>
-              <li><a href="https://www.showdoc.com.cn/dnsmgr/11058996709621562" target="_blank" rel="noreferrer"><i class="fa fa-circle-o"></i> <span>接口文档</span></a></li>
             </ul>
           </li>
           <li class="{:checkIfActive('user')}">
@@ -205,6 +218,7 @@
   <div class="tab-pane active">
   <h4 class="control-sidebar-heading">皮肤</h4>
     <ul class="list-unstyled clearfix skin-list">
+        <li><a href="javascript:;" data-skin="skin-modern" class="clearfix full-opacity-hover"><div><span style="width: 20%; height: 27px; background: #fbfbfd; box-shadow: inset -1px 0 0 #e5e5ea;"><span style="width: 70%; height: 4px; margin: 9px 15% 0; border-radius: 2px; background: #0071e3;"></span></span><span style="width: 80%; height: 27px; background: #f5f5f7;"></span></div></a><p class="text-center no-margin">Modern</p></li>
         <li><a href="javascript:;" data-skin="skin-blue" class="clearfix full-opacity-hover"><div><span style="width: 20%; height: 27px; background: #4e73df;"></span><span style="width: 80%; height: 27px; background: #f4f5f7;"></span></div></a><p class="text-center no-margin">Blue</p></li>
         <li><a href="javascript:;" data-skin="skin-black" class="clearfix full-opacity-hover"><div><span style="width: 20%; height: 27px; background: #000;"></span><span style="width: 80%; height: 27px; background: #f4f5f7;"></span></div></a><p class="text-center no-margin">Black</p></li>
         <li><a href="javascript:;" data-skin="skin-purple" class="clearfix full-opacity-hover"><div><span style="width: 20%; height: 27px; background: #605ca8;"></span><span style="width: 80%; height: 27px; background: #f4f5f7;"></span></div></a><p class="text-center no-margin">Purple</p></li>
@@ -238,21 +252,14 @@
 <!-- ./wrapper -->
 
 <script src="/static/js/bootstrap-3.4.1.min.js"></script>
-<script src="/static/js/fastclick-1.0.6.min.js"></script>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/app.js?v={:config('app.version')}"></script>
+<script src="/static/js/zn.js?v={:config('app.version')}"></script>
 <script>
+  // 移动端：阻止从屏幕左边缘开始的手势触发浏览器返回
   document.addEventListener('pointerdown', function(e) {
-    if (e.target.closest('table')) {
-        return;
-    }
-
-    startX = e.clientX;
-
-    // 如果触摸开始于屏幕左边缘的10%区域内
-    if (startX < window.innerWidth * 0.1) {
-        e.preventDefault(); // 尝试阻止默认行为
-    }
-}, false);
+    if (e.pointerType !== 'touch' || e.target.closest('table, input, textarea, select, a, button')) return;
+    if (e.clientX < window.innerWidth * 0.06) e.preventDefault();
+  }, false);
 
 </script>
 {block name="script"}{/block}

@@ -16,45 +16,60 @@ class Index extends BaseController
             return redirect('/record/' . $this->request->user['id']);
         }
         if ($this->request->isAjax()) {
-            if (input('post.do') == 'stat') {
+            if (input('post.do') == 'stat' || !empty($this->request->isApi)) {
                 $stat = [];
                 if ($this->request->user['level'] == 2) {
                     $stat['domains'] = Db::name('domain')->count();
                 } else {
                     $stat['domains'] = Db::name('domain')->where('name', 'in', $this->request->user['permission'])->count();
                 }
-                $stat['tasks'] = Db::name('dmtask')->count();
-                $stat['certs'] = Db::name('cert_order')->count();
-                $stat['deploys'] = Db::name('cert_deploy')->count();
+                $now = date('Y-m-d H:i:s');
+                // 合并统计查询，减少数据库往返
+                $prefix = env('database.prefix', 'dnsmgr_');
+                $dm = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(active=1),0) AS a, IFNULL(SUM(status=0),0) AS s0, IFNULL(SUM(status=1),0) AS s1 FROM `' . $prefix . 'dmtask`')[0];
+                $op = Db::query('SELECT IFNULL(SUM(active=1),0) AS a, IFNULL(SUM(status=1),0) AS s1, IFNULL(SUM(status=2),0) AS s2 FROM `' . $prefix . 'optimizeip`')[0];
+                $co = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(status=3),0) AS s3, IFNULL(SUM(status<0),0) AS s5, IFNULL(SUM(expiretime>=? AND expiretime<?),0) AS s6, IFNULL(SUM(expiretime<?),0) AS s7 FROM `' . $prefix . 'cert_order`', [$now, date('Y-m-d H:i:s', time() + 86400 * 7), $now])[0];
+                $cd = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(status=0),0) AS s0, IFNULL(SUM(status=1),0) AS s1, IFNULL(SUM(status=-1),0) AS s2 FROM `' . $prefix . 'cert_deploy`')[0];
+
+                $stat['tasks'] = (int)$dm['c'];
+                $stat['certs'] = (int)$co['c'];
+                $stat['deploys'] = (int)$cd['c'];
 
                 $run_time = config_get('run_time', null, true);
                 $run_state = $run_time ? (time() - strtotime($run_time) > 10 ? 0 : 1) : 0;
                 $stat['dmonitor_state'] = $run_state;
-                $stat['dmonitor_active'] = Db::name('dmtask')->where('active', 1)->count();
-                $stat['dmonitor_status_0'] = Db::name('dmtask')->where('status', 0)->count();
-                $stat['dmonitor_status_1'] = Db::name('dmtask')->where('status', 1)->count();
+                $stat['dmonitor_active'] = (int)$dm['a'];
+                $stat['dmonitor_status_0'] = (int)$dm['s0'];
+                $stat['dmonitor_status_1'] = (int)$dm['s1'];
 
-                $stat['optimizeip_active'] = Db::name('optimizeip')->where('active', 1)->count();
-                $stat['optimizeip_status_1'] = Db::name('optimizeip')->where('status', 1)->count();
-                $stat['optimizeip_status_2'] = Db::name('optimizeip')->where('status', 2)->count();
+                $stat['optimizeip_active'] = (int)$op['a'];
+                $stat['optimizeip_status_1'] = (int)$op['s1'];
+                $stat['optimizeip_status_2'] = (int)$op['s2'];
 
-                $stat['certorder_status_3'] = Db::name('cert_order')->where('status', 3)->count();
-                $stat['certorder_status_5'] = Db::name('cert_order')->where('status', '<', 0)->count();
-                $stat['certorder_status_6'] = Db::name('cert_order')->where('expiretime', '<', date('Y-m-d H:i:s', time() + 86400 * 7))->where('expiretime', '>=', date('Y-m-d H:i:s'))->count();
-                $stat['certorder_status_7'] = Db::name('cert_order')->where('expiretime', '<', date('Y-m-d H:i:s'))->count();
+                $stat['certorder_status_3'] = (int)$co['s3'];
+                $stat['certorder_status_5'] = (int)$co['s5'];
+                $stat['certorder_status_6'] = (int)$co['s6'];
+                $stat['certorder_status_7'] = (int)$co['s7'];
 
-                $stat['certdeploy_status_0'] = Db::name('cert_deploy')->where('status', 0)->count();
-                $stat['certdeploy_status_1'] = Db::name('cert_deploy')->where('status', 1)->count();
-                $stat['certdeploy_status_2'] = Db::name('cert_deploy')->where('status', -1)->count();
+                $stat['certdeploy_status_0'] = (int)$cd['s0'];
+                $stat['certdeploy_status_1'] = (int)$cd['s1'];
+                $stat['certdeploy_status_2'] = (int)$cd['s2'];
+
+                try {
+                    $stat['apikeys'] = Db::name('apikey')->where('status', 1)->count();
+                    $stat['apikey_last'] = Db::name('apikey')->whereNotNull('lasttime')->order('lasttime', 'desc')->value('lasttime');
+                } catch (Exception $e) {
+                    $stat['apikeys'] = 0;
+                    $stat['apikey_last'] = null;
+                }
+                $stat['expire_domains'] = $this->request->user['level'] == 2 ? Db::name('domain')->where('expiretime', '<=', date('Y-m-d H:i:s', time() + 86400 * 30))->where('expiretime', '>', $now)->count() : 0;
 
                 return json($stat);
             }
             return json(['code' => -3]);
         }
 
-        if (config('app.dbversion') && config_get('version') != config('app.dbversion')) {
-            $this->db_update();
-        }
+        db_update_check();
 
         $tmp = 'version()';
         $mysqlVersion = Db::query("select version()")[0][$tmp];
@@ -67,45 +82,8 @@ class Index extends BaseController
             'date' => date("Y-m-d H:i:s"),
         ];
         View::assign('info', $info);
-        View::assign('checkupdate', '//auth.cccyun.cc/app/dnsmgr.php?ver=' . config('app.version'));
+        View::assign('version', config('app.version'));
         return view();
-    }
-
-    private function db_update()
-    {
-        $sqls = file_get_contents(app()->getAppPath() . 'sql/update.sql');
-        $mysql_prefix = env('database.prefix', 'dnsmgr_');
-        $sqls = explode(';', $sqls);
-        foreach ($sqls as $value) {
-            $value = trim($value);
-            if (empty($value)) continue;
-            $value = str_replace('dnsmgr_', $mysql_prefix, $value);
-            try {
-                Db::execute($value);
-            } catch (Exception $e) {
-            }
-        }
-        config_set('version', config('app.dbversion'));
-        Cache::clear();
-        if(Db::name('account')->count() > 0 && Db::name('account')->whereNotNull('config')->count() == 0) {
-            $accounts = Db::name('account')->select();
-            foreach ($accounts as $account) {
-                if (!empty($account['config']) || !isset(\app\lib\DnsHelper::$dns_config[$account['type']])) continue;
-                $config = [];
-                $account_fields = ['name', 'sk', 'ext'];
-                $i = 0;
-                foreach(\app\lib\DnsHelper::$dns_config[$account['type']]['config'] as $field => $item) {
-                    if ($field == 'proxy') {
-                        $config[$field] = $account['proxy'];
-                        break;
-                    }
-                    if ($i >= 3) break;
-                    $account_field = $account_fields[$i++];
-                    $config[$field] = isset($account[$account_field]) ? $account[$account_field] : '';
-                }
-                Db::name('account')->where('id', $account['id'])->update(['config' => json_encode($config)]);
-            }
-        }
     }
 
     public function changeskin()

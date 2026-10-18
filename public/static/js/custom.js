@@ -1,3 +1,9 @@
+if (typeof window.htmlEscape !== 'function') {
+	window.htmlEscape = function(str) {
+		if (str === null || typeof str === 'undefined') return '';
+		return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+	};
+}
 var location_url = window.location.href;
 var parameter_str = location_url.split('?')[1];
 if (parameter_str !== undefined) {

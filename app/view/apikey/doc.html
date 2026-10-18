@@ -1,0 +1,240 @@
+{extend name="common/layout" /}
+{block name="title"}API接口文档 - 聚合DNS管理系统{/block}
+{block name="main"}
+<div class="doc-layout">
+<aside class="doc-side hidden-sm hidden-xs">
+	<div class="box doc-side-box">
+		<div class="doc-search"><i class="fa fa-search"></i><input type="search" id="docSearch" placeholder="搜索接口、参数或权限" autocomplete="off"></div>
+		<nav class="doc-toc">
+			<a href="#start">开始使用</a>
+			<a href="#auth">签名与示例代码</a>
+			<a href="#scopes">权限范围</a>
+			{foreach $groups as $g}<a href="#g-{$g.key}">{$g.name}<span>{:count($g['items'])}</span></a>{/foreach}
+		</nav>
+	</div>
+</aside>
+<div class="doc-main">
+	<div class="box" id="start">
+		<div class="box-header with-border">
+			<i class="fa fa-book fa-fw"></i><h3 class="box-title">开始使用</h3>
+			<div class="box-tools pull-right"><a href="/apikey" class="btn btn-primary btn-sm"><i class="fa fa-key"></i> 管理API密钥</a></div>
+		</div>
+		<div class="box-body doc-prose">
+			<p>共 <b>{$total}</b> 个接口，全部使用 <code>POST</code> 请求，参数以表单格式（<code>application/x-www-form-urlencoded</code>）提交，返回 JSON。接口地址前缀：</p>
+			<div class="copy-line"><code id="baseUrl">{$siteurl}/api</code><button class="btn btn-default btn-xs" data-copy="#baseUrl"><i class="fa fa-copy"></i> 复制</button></div>
+			<p>每个请求都需要携带以下三个认证参数，两种身份任选其一：</p>
+			<table class="table table-bordered doc-table">
+				<thead><tr><th style="width:150px">方式</th><th>认证参数</th><th>签名算法</th><th>权限</th></tr></thead>
+				<tbody>
+					<tr><td><b>API密钥</b>（推荐）<br><small class="text-muted">在「API密钥」页面创建</small></td><td class="mono">keyid<br>timestamp<br>sign</td><td class="mono">md5(keyid + timestamp + secret)</td><td>只能使用创建密钥时勾选的权限，可限定域名、IP、频率和有效期</td></tr>
+					<tr><td><b>用户API</b><br><small class="text-muted">在「用户管理」为用户开启</small></td><td class="mono">uid<br>timestamp<br>sign</td><td class="mono">md5(uid + timestamp + 用户API密钥)</td><td>拥有该用户的全部权限，兼容原有对接方式</td></tr>
+				</tbody>
+			</table>
+			<p><code>timestamp</code> 为当前 Unix 时间戳（秒），与服务器时间相差不能超过 5 分钟；<code>+</code> 表示直接拼接字符串，sign 取 32 位小写。</p>
+			<p>返回格式：成功时 <code>code</code> 为 <code>0</code>；列表接口直接返回 <code>{"total":总数,"rows":[...]}</code>，分页使用 <code>offset</code>（偏移量，默认 0）和 <code>limit</code>（条数，默认 20，最大 1000）。失败时返回 <code>{"code":-1,"msg":"错误原因"}</code>。</p>
+			<table class="table table-bordered doc-table">
+				<thead><tr><th style="width:150px">HTTP状态码</th><th>说明</th></tr></thead>
+				<tbody>
+					<tr><td>200</td><td>请求已处理，以返回内容中的 <code>code</code> 判断是否成功</td></tr>
+					<tr><td>400</td><td>缺少必填参数或参数格式不正确</td></tr>
+					<tr><td>403</td><td>认证失败：参数缺失、时间戳不合法、签名错误、密钥已禁用/过期、IP不在白名单、缺少该接口所需权限</td></tr>
+					<tr><td>404</td><td>接口不存在（注意所有接口都是 POST）</td></tr>
+					<tr><td>429</td><td>超过密钥的频率限制，或同一IP认证失败次数过多（20次）被临时封禁15分钟</td></tr>
+					<tr><td>500</td><td>服务器内部错误（不会返回调用栈等内部信息）</td></tr>
+				</tbody>
+			</table>
+		</div>
+	</div>
+
+	<div class="box" id="auth">
+		<div class="box-header with-border"><i class="fa fa-terminal fa-fw"></i><h3 class="box-title">签名与示例代码</h3></div>
+		<div class="box-body">
+			<ul class="nav nav-tabs doc-tabs" role="tablist">
+				<li class="active"><a href="#code-shell" data-toggle="tab">Shell</a></li>
+				<li><a href="#code-python" data-toggle="tab">Python</a></li>
+				<li><a href="#code-php" data-toggle="tab">PHP</a></li>
+				<li><a href="#code-node" data-toggle="tab">Node.js</a></li>
+			</ul>
+			<div class="tab-content">
+<div class="tab-pane active" id="code-shell"><div class="code-wrap"><button class="btn-copy" data-copy="#c-shell"><i class="fa fa-copy"></i> 复制</button><pre class="code" id="c-shell">KEYID="你的KeyID"
+SECRET="你的Secret"
+TS=$(date +%s)
+SIGN=$(printf '%s' "$KEYID$TS$SECRET" | md5sum | cut -d' ' -f1)   # macOS 可用: md5 -q -s "$KEYID$TS$SECRET"
+
+# 示例：添加一条解析
+curl -X POST "{$siteurl}/api/record/add/1" \
+  -d "keyid=$KEYID" -d "timestamp=$TS" -d "sign=$SIGN" \
+  --data-urlencode "name=www" --data-urlencode "type=A" --data-urlencode "value=1.2.3.4"</pre></div></div>
+<div class="tab-pane" id="code-python"><div class="code-wrap"><button class="btn-copy" data-copy="#c-python"><i class="fa fa-copy"></i> 复制</button><pre class="code" id="c-python">import hashlib, time, requests
+
+BASE = "{$siteurl}/api"
+KEYID = "你的KeyID"
+SECRET = "你的Secret"
+
+def call(path, **params):
+    ts = str(int(time.time()))
+    sign = hashlib.md5((KEYID + ts + SECRET).encode()).hexdigest()
+    data = {"keyid": KEYID, "timestamp": ts, "sign": sign, **params}
+    return requests.post(BASE + path, data=data, timeout=60).json()
+
+# 申请证书 → 推送到服务器
+print(call("/cert/order/add", aid=1, **{"domains[]": ["example.com", "*.example.com"]}, keytype="RSA", keysize="2048"))
+print(call("/cert/deploy/process", id=1, reset=1))</pre></div></div>
+<div class="tab-pane" id="code-php"><div class="code-wrap"><button class="btn-copy" data-copy="#c-php"><i class="fa fa-copy"></i> 复制</button><pre class="code" id="c-php">&lt;?php
+function dnsmgr_api($path, array $params = []) {
+    $keyid = '你的KeyID';
+    $secret = '你的Secret';
+    $ts = time();
+    $params += ['keyid' =&gt; $keyid, 'timestamp' =&gt; $ts, 'sign' =&gt; md5($keyid . $ts . $secret)];
+    $ch = curl_init('{$siteurl}/api' . $path);
+    curl_setopt_array($ch, [CURLOPT_POST =&gt; true, CURLOPT_POSTFIELDS =&gt; http_build_query($params), CURLOPT_RETURNTRANSFER =&gt; true, CURLOPT_TIMEOUT =&gt; 60]);
+    $res = curl_exec($ch);
+    curl_close($ch);
+    return json_decode($res, true);
+}
+
+print_r(dnsmgr_api('/record/data/1', ['offset' =&gt; 0, 'limit' =&gt; 20]));</pre></div></div>
+<div class="tab-pane" id="code-node"><div class="code-wrap"><button class="btn-copy" data-copy="#c-node"><i class="fa fa-copy"></i> 复制</button><pre class="code" id="c-node">const crypto = require('crypto');
+
+const BASE = '{$siteurl}/api';
+const KEYID = '你的KeyID';
+const SECRET = '你的Secret';
+
+async function call(path, params = {}) {
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const sign = crypto.createHash('md5').update(KEYID + ts + SECRET).digest('hex');
+  const body = new URLSearchParams({ keyid: KEYID, timestamp: ts, sign, ...params });
+  const res = await fetch(BASE + path, { method: 'POST', body });
+  return res.json();
+}
+
+call('/domain', { offset: 0, limit: 20 }).then(console.log);</pre></div></div>
+			</div>
+		</div>
+	</div>
+
+	<div class="box" id="scopes">
+		<div class="box-header with-border"><i class="fa fa-shield fa-fw"></i><h3 class="box-title">权限范围</h3></div>
+		<div class="box-body doc-prose" style="padding-bottom:0">
+			<p>创建API密钥时可以自由组合权限，例如只勾选“申请证书”和“推送证书”，该密钥就无法修改任何解析。标记“仅管理员”的权限只能授予管理员用户的密钥；设置了域名范围的密钥不能使用容灾、定时切换、优选IP和CF增强（这些功能无法按域名隔离）。</p>
+		</div>
+		<div class="table-responsive">
+		<table class="table" style="margin:0">
+			<thead><tr><th>权限</th><th>名称</th><th>可以做什么</th></tr></thead>
+			<tbody>
+			{foreach $scopes as $s}
+			<tr><td style="white-space:nowrap"><span class="scope-chip {$s.chip}">{$s.scope}</span></td><td style="white-space:nowrap">{$s.name}{if $s.admin}<br><small class="text-muted">仅管理员</small>{/if}</td><td>{$s.desc}</td></tr>
+			{/foreach}
+			</tbody>
+		</table>
+		</div>
+	</div>
+
+	<div id="noResult" class="box" style="display:none"><div class="box-body text-center text-muted" style="padding:32px">没有找到匹配的接口，换个关键词试试</div></div>
+
+	{foreach $groups as $g}
+	<div class="box doc-group" id="g-{$g.key}">
+		<div class="box-header with-border"><h3 class="box-title">{$g.name}</h3></div>
+		{if isset($g['desc'])}<div class="doc-group-desc"><i class="fa fa-info-circle"></i> {$g.desc}</div>{/if}
+		{foreach $g.items as $item}
+		<div class="api-item" id="{$item.anchor}" data-search="{$item.path} {$item.summary} {$item.scope} {$item.scope_name}{foreach $item.params as $p} {$p[0]}{/foreach}">
+			<div class="api-head" role="button" tabindex="0" aria-expanded="false">
+				<span class="http-method http-post">POST</span>
+				<span class="api-path" id="{$item.anchor}-path">{$item.path}{$item.query}</span>
+				<span class="api-summary">{$item.summary}</span>
+				<span class="api-meta">
+					{if $item.origin}<span class="api-origin" title="系统原有接口">原有</span>{/if}
+					<span class="scope-chip {$item.chip}" title="{$item.scope_name}">{$item.scope}</span>
+					<i class="fa fa-angle-down api-caret"></i>
+				</span>
+			</div>
+			<div class="api-body">
+				<div class="api-actions">
+					<button class="btn btn-default btn-xs" data-copy="#{$item.anchor}-path"><i class="fa fa-link"></i> 复制路径</button>
+					<button class="btn btn-default btn-xs" data-copy="#{$item.anchor}-curl"><i class="fa fa-terminal"></i> 复制 curl 示例</button>
+				</div>
+				{if !empty($item['params'])}
+				<table class="api-params">
+					<thead><tr><th>参数</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
+					<tbody>
+					{foreach $item.params as $p}<tr><td class="mono">{$p[0]}</td><td class="type">{$p[1]}</td><td>{if $p[2]}<span class="req">必填</span>{else/}<span class="text-muted">可选</span>{/if}</td><td>{$p[3]}</td></tr>{/foreach}
+					</tbody>
+				</table>
+				{else/}
+				<p class="text-muted" style="margin:10px 0 0">除认证参数外无需其他参数。</p>
+				{/if}
+				<div class="api-code-title">请求示例</div>
+				<div class="code-wrap"><button class="btn-copy" data-copy="#{$item.anchor}-curl"><i class="fa fa-copy"></i> 复制</button><pre class="code" id="{$item.anchor}-curl">{$item.curl}</pre></div>
+				{if $item.returns}
+				<div class="api-code-title">返回示例</div>
+				<div class="code-wrap"><button class="btn-copy light" data-copy="#{$item.anchor}-ret"><i class="fa fa-copy"></i> 复制</button><pre class="code code-light" id="{$item.anchor}-ret">{$item.returns}</pre></div>
+				{/if}
+			</div>
+		</div>
+		{/foreach}
+	</div>
+	{/foreach}
+</div>
+</div>
+{/block}
+{block name="script"}
+<script src="/static/js/layer/layer.js"></script>
+<script>
+function copyText(text) {
+	var done = function() { layer.msg('已复制', {icon: 1, time: 1000}); };
+	if (navigator.clipboard && window.isSecureContext) {
+		navigator.clipboard.writeText(text).then(done, function() { fallbackCopy(text); done(); });
+	} else {
+		fallbackCopy(text); done();
+	}
+}
+function fallbackCopy(text) {
+	var t = document.createElement('textarea');
+	t.value = text; t.setAttribute('readonly', ''); t.style.position = 'fixed'; t.style.top = '0'; t.style.opacity = '0';
+	document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t);
+}
+$(document).on('click', '[data-copy]', function(e) {
+	e.preventDefault(); e.stopPropagation();
+	var el = document.querySelector($(this).data('copy'));
+	if (el) copyText(el.textContent);
+});
+$(document).on('click keydown', '.api-head', function(e) {
+	if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+	e.preventDefault();
+	var item = $(this).closest('.api-item').toggleClass('open');
+	$(this).attr('aria-expanded', item.hasClass('open'));
+});
+$('#docSearch').on('input', function() {
+	var kw = $.trim($(this).val()).toLowerCase();
+	var any = false;
+	$('.doc-group').each(function() {
+		var visible = 0;
+		$(this).find('.api-item').each(function() {
+			var hit = !kw || String($(this).data('search')).toLowerCase().indexOf(kw) > -1;
+			$(this).toggle(hit);
+			if (hit) visible++;
+			if (kw && hit) $(this).addClass('open');
+		});
+		$(this).toggle(visible > 0);
+		if (visible) any = true;
+	});
+	$('#start, #auth, #scopes').toggle(!kw);
+	$('#noResult').toggle(!any);
+});
+if (location.hash && /^#api-\d+$/.test(location.hash)) $(location.hash).addClass('open');
+// 目录高亮当前阅读的分组
+if ('IntersectionObserver' in window) {
+	var tocLinks = {};
+	$('.doc-toc a').each(function() { tocLinks[$(this).attr('href').slice(1)] = $(this); });
+	var io = new IntersectionObserver(function(entries) {
+		entries.forEach(function(en) {
+			if (en.isIntersecting && tocLinks[en.target.id]) {
+				$('.doc-toc a.active').removeClass('active');
+				tocLinks[en.target.id].addClass('active');
+			}
+		});
+	}, { rootMargin: '-80px 0px -70% 0px' });
+	$('#start, #auth, #scopes, .doc-group').each(function() { io.observe(this); });
+}
+</script>
+{/block}

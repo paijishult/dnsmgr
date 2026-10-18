@@ -28,6 +28,7 @@ RUN set -eux; \
       php83-openssl \
       php83-phar \
       php83-sodium \
+      php83-sockets \
       php83-session \
       php83-simplexml \
       php83-tokenizer \
@@ -87,37 +88,38 @@ RUN set -eux; \
     rm -rf /var/cache/apk/* /tmp/*
 
 # Configure nginx - http
-COPY config/nginx.conf /etc/nginx/nginx.conf
+COPY .github/docker/config/nginx.conf /etc/nginx/nginx.conf
 
 # Configure PHP-FPM
 ENV PHP_INI_DIR /etc/php83
-COPY config/fpm-pool.conf ${PHP_INI_DIR}/php-fpm.d/www.conf
-COPY config/php.ini ${PHP_INI_DIR}/conf.d/custom.ini
+COPY .github/docker/config/fpm-pool.conf ${PHP_INI_DIR}/php-fpm.d/www.conf
+COPY .github/docker/config/php.ini ${PHP_INI_DIR}/conf.d/custom.ini
 
 # Configure supervisord
-COPY config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY .github/docker/config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# CACHE_BUST 须写进每条相关 RUN，否则 GHA/BuildKit 可能单独命中 composer 相关层缓存，vendor 仍来自旧构建
-ARG CACHE_BUST=local
+# Install composer
+RUN wget https://getcomposer.org/download/latest-stable/composer.phar -O /usr/local/bin/composer && chmod +x /usr/local/bin/composer
 
-# Add application
-RUN mkdir -p /usr/src && echo "$CACHE_BUST" >/dev/null && wget --no-cache https://github.com/netcccyun/dnsmgr/archive/refs/heads/main.zip -O /usr/src/www.zip && unzip /usr/src/www.zip -d /usr/src/ && mv /usr/src/dnsmgr-main /usr/src/www && rm -f /usr/src/www.zip
+# 先单独安装依赖，源码变动时可复用依赖层缓存
+COPY composer.json composer.lock /usr/src/www/
+RUN composer install -d /usr/src/www --no-interaction --no-dev --no-autoloader --no-scripts --no-cache
 
-# Install composer（与下面 install 一并随 CACHE_BUST 失效）
-RUN echo "$CACHE_BUST" >/dev/null && wget https://getcomposer.org/download/latest-stable/composer.phar -O /usr/local/bin/composer && chmod +x /usr/local/bin/composer
-
-RUN echo "$CACHE_BUST" >/dev/null && composer install -d /usr/src/www --no-interaction --no-dev --optimize-autoloader --no-cache
+# Add application（使用本仓库源码构建）
+COPY . /usr/src/www
+RUN composer dump-autoload -d /usr/src/www --no-dev --optimize --no-interaction \
+    && rm -rf /usr/src/www/.github /usr/src/www/.git /usr/local/bin/composer
 
 RUN adduser -D -s /sbin/nologin -g www www && chown -R www:www /usr/src/www /var/lib/nginx /var/log/nginx
 
 # crontab
 RUN echo "* * * * * cd /app/www && /usr/bin/php83 think certtask" | crontab -u www -
 
-COPY config/run_tasks.sh /app/run_tasks.sh
+COPY .github/docker/config/run_tasks.sh /app/run_tasks.sh
 RUN chmod +x /app/run_tasks.sh
 
 # copy entrypoint script
-COPY entrypoint.sh /entrypoint.sh
+COPY .github/docker/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["sh", "/entrypoint.sh"]
 
 # Expose the port nginx is reachable on

@@ -247,7 +247,7 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
 <script src="/static/js/bootstrapValidator.min.js"></script>
 <script src="/static/js/xlsx.full.min.js"></script>
-<script src="/static/js/custom.js?v=1006"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
 var recordLine = {$recordLine|json_encode|raw};
 var dnsconfig = {$dnsconfig|json_encode|raw};
@@ -280,6 +280,7 @@ $(document).ready(function(){
 			},
 		   {
 			   field: 'Name',
+				escape: true,
 			   title: '主机记录',
 			   sortable: dnsconfig.sort
 		   },
@@ -295,6 +296,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'LineName',
+				escape: true,
 				title: '线路类型',
 				sortable: dnsconfig.sort
 			},
@@ -325,6 +327,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'Remark',
+				escape: true,
 				visible: dnsconfig.remark > 0,
 				title: '备注'
 			},
@@ -556,7 +559,7 @@ function setRemark(recordid) {
 		area: ['350px'],
 		closeBtn: 2,
 		title: '编辑备注',
-		content: '<div style="padding:15px"><div class="form-group"><input class="form-control" type="text" name="remark" value="'+(row.Remark==null?'':row.Remark)+'" autocomplete="off" placeholder="备注信息"></div></div>',
+		content: '<div style="padding:15px"><div class="form-group"><input class="form-control" type="text" name="remark" value="'+(row.Remark==null?'':htmlEscape(row.Remark))+'" autocomplete="off" placeholder="备注信息"></div></div>',
 		btn: ['确认', '取消'],
 		yes: function(){
 			var remark = $("input[name='remark']").val();
@@ -977,7 +980,7 @@ function checkRecord(recordid) {
 				var result = data.data;
 				var title = result.status === 'active' ? '<font color="green"><i class="fa fa-check-circle"></i> 解析已生效</font>' : (result.status === 'not_found' ? '<font color="red"><i class="fa fa-times-circle"></i> 未查询到解析</font>' : '<font color="red"><i class="fa fa-times-circle"></i> 解析值不匹配</font>');
 				var content = '<div style="padding:0 10px;">';
-				content += '<p><strong>主机记录：</strong>' + row.Name + '</p>';
+				content += '<p><strong>主机记录：</strong>' + htmlEscape(row.Name) + '</p>';
 				content += '<p><strong>记录类型：</strong>' + row.Type + '</p>';
 				content += '<p><strong>记录值：</strong>' + htmlEscape(row.Value) + '</p>';
 				content += '<hr style="margin:10px 0;">';

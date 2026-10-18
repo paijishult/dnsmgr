@@ -49,6 +49,8 @@ class Dmtask extends Command
         \Co\run(function () {
             $date = date("Ymd");
             $count = config_get('run_count', null, true) ?? 0;
+            $lastCount = -1;
+            $lastBeat = 0;
             while (true) {
                 sleep(1);
                 if ($date != date("Ymd")) {
@@ -74,8 +76,17 @@ class Dmtask extends Command
                     $count++;
                 }
 
-                config_set('run_time', date("Y-m-d H:i:s"));
-                config_set('run_count', $count);
+                // 降低数据库写入频率：运行状态每3秒更新一次（后台判断10秒内有心跳即为运行中）
+                if (time() - $lastBeat >= 3 || $count != $lastCount) {
+                    if (time() - $lastBeat >= 3) {
+                        config_set('run_time', date("Y-m-d H:i:s"));
+                        $lastBeat = time();
+                    }
+                    if ($count != $lastCount) {
+                        config_set('run_count', $count);
+                        $lastCount = $count;
+                    }
+                }
             }
         });
     }

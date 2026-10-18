@@ -61,7 +61,7 @@
 <script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
 <script src="/static/js/bootstrapValidator.min.js"></script>
-<script src="/static/js/custom.js?v=1006"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
 $(document).ready(function(){
 	updateToolbar();
@@ -88,6 +88,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'name',
+				escape: true,
 				title: '分类名称',
 				sortable: true
 			},

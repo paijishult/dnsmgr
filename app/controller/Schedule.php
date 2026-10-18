@@ -64,6 +64,9 @@ class Schedule extends BaseController
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
+        if ($this->request->isApi && in_array($action, ['add', 'edit', 'setactive', 'del', 'operation'])) {
+            api_write_log('定时切换:' . $action, 'ID:' . (input('post.id') ?: implode(',', (array)input('post.ids', []))) . ' ' . input('post.rr', ''));
+        }
         if ($action == 'add') {
             $task = [
                 'did' => input('post.did/d'),

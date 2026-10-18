@@ -1,0 +1,435 @@
+<?php
+
+namespace app\lib;
+
+/**
+ * API接口文档目录（后台「API接口文档」页面使用）
+ * 所有接口均为 POST，参数以表单（application/x-www-form-urlencoded）提交
+ * 参数格式：[名称, 类型, 是否必填, 说明, 示例值]
+ */
+class ApiDoc
+{
+    private static $page = [
+        ['offset', 'int', false, '跳过的条数（分页偏移量），默认 0', '0'],
+        ['limit', 'int', false, '每页条数，默认 20，最大 1000', '20'],
+    ];
+
+    public static function groups()
+    {
+        $page = self::$page;
+        return [
+            [
+                'key' => 'domain',
+                'name' => '域名',
+                'items' => [
+                    ['/api/domain', 'domain:read', '获取域名列表', array_merge([
+                        ['kw', 'string', false, '按域名或备注搜索', ''],
+                        ['aid', 'int', false, 'DNS账户ID', ''],
+                        ['cid', 'int', false, '分类ID', ''],
+                        ['type', 'string', false, 'DNS平台类型，如 aliyun、dnspod、cloudflare', ''],
+                        ['status', 'int', false, '1=30天内到期 2=已到期', ''],
+                        ['id', 'int', false, '按域名ID精确查询', ''],
+                    ], $page), '{"total":1,"rows":[{"id":1,"aid":1,"name":"example.com","thirdid":"...","recordcount":12,"expiretime":"2027-01-01 00:00:00","type":"aliyun","typename":"阿里云","category_name":"", ...}]}', 'origin'],
+                    ['/api/domain/{id}', 'domain:read', '获取域名详情、解析线路和最小TTL', [
+                        ['loginurl', 'int', false, '传 1 返回该域名的快捷登录链接（需要“修改解析”权限）', ''],
+                    ], '{"code":0,"data":{"id":1,"name":"example.com","recordLine":[{"id":"default","name":"默认","parent":null}],"minTTL":600,"config":{"type":"aliyun","remark":1,"status":true, ...}}}', 'origin'],
+                    ['/api/domain/category/list', 'domain:read', '获取域名分类列表', [], '{"code":0,"data":[{"id":1,"name":"业务","remark":"","sort":0,"domain_count":3}]}'],
+                    ['/api/domain/category/data', 'domain:read', '获取域名分类列表（分页）', $page, '{"total":1,"rows":[{"id":1,"name":"业务","remark":"","sort":0,"addtime":"...","domain_count":3}]}'],
+                    ['/api/domain/category/add', 'domain:write', '添加域名分类', [['name', 'string', true, '分类名称', '业务'], ['remark', 'string', false, '备注', ''], ['sort', 'int', false, '排序，越小越靠前', '0']], '{"code":0,"msg":"添加分类成功！"}'],
+                    ['/api/domain/category/edit', 'domain:write', '修改域名分类', [['id', 'int', true, '分类ID', '1'], ['name', 'string', true, '分类名称', '业务'], ['remark', 'string', false, '备注', ''], ['sort', 'int', false, '排序', '0']], '{"code":0,"msg":"修改分类成功！"}'],
+                    ['/api/domain/category/del', 'domain:write', '删除域名分类（分类下有域名时无法删除）', [['id', 'int', true, '分类ID', '1']], '{"code":0,"msg":"删除分类成功！"}'],
+                    ['/api/account/data', 'domain:read', '获取DNS账户列表（仅管理员，不返回任何账户密钥）', array_merge([['kw', 'string', false, '搜索关键词', '']], $page), '{"total":1,"rows":[{"id":1,"type":"aliyun","typename":"阿里云","name":"LTAI****abcd","remark":"主账号"}]}'],
+                    ['/api/domain/list', 'domain:write', '查询DNS账户下的域名（用于添加域名）', [
+                        ['aid', 'int', true, 'DNS账户ID', '1'],
+                        ['kw', 'string', false, '搜索关键词', ''],
+                        ['page', 'int', false, '页码，默认1', '1'],
+                        ['pagesize', 'int', false, '每页数量，默认10', '20'],
+                    ], '{"code":0,"data":{"total":2,"list":[{"DomainId":"xxx","Domain":"example.com","RecordCount":12,"disabled":false}]}}'],
+                    ['/api/domain/op', 'domain:write', '添加域名（act=add）', [
+                        ['act', 'string', true, '固定为 add', 'add'],
+                        ['aid', 'int', true, 'DNS账户ID', '1'],
+                        ['method', 'int', false, '0=从平台已有域名导入（需传 thirdid），1=在DNS平台新建域名', '0'],
+                        ['name', 'string', true, '域名', 'example.com'],
+                        ['thirdid', 'string', false, '域名在DNS平台的ID（method=0时必填，可通过 /api/domain/list 查询）', 'xxx'],
+                    ], '{"code":0,"msg":"添加域名成功！"}'],
+                    ['/api/domain/op', 'domain:write', '修改域名设置（act=edit）', [
+                        ['act', 'string', true, '固定为 edit', 'edit'],
+                        ['id', 'int', true, '域名ID', '1'],
+                        ['is_hide', 'int', true, '对普通用户隐藏 0/1', '0'],
+                        ['is_sso', 'int', true, '允许快捷登录 0/1', '1'],
+                        ['is_notice', 'int', true, '到期提醒 0/1', '1'],
+                        ['cid', 'int', false, '分类ID', '0'],
+                        ['expiretime', 'string', false, '到期时间', ''],
+                        ['remark', 'string', false, '备注', ''],
+                    ], '{"code":0,"msg":"修改域名配置成功！"}'],
+                    ['/api/domain/op', 'domain:write', '删除域名（act=del，只从本系统移除，不影响DNS平台）', [
+                        ['act', 'string', true, '固定为 del', 'del'],
+                        ['id', 'int', true, '域名ID', '1'],
+                    ], '{"code":0}'],
+                    ['/api/domain/op', 'domain:read', '获取域名信息（act=get）', [
+                        ['act', 'string', true, '固定为 get', 'get'],
+                        ['id', 'int', true, '域名ID', '1'],
+                    ], '{"code":0,"data":{"id":1,"name":"example.com", ...}}'],
+                    ['/api/domain/op', 'domain:write', '批量操作（act=batchedit 改备注 / batchsetnotice 到期提醒 / batchdel 删除 / updateexpire 刷新到期时间）', [
+                        ['act', 'string', true, 'batchedit / batchsetnotice / batchdel / updateexpire', 'updateexpire'],
+                        ['ids[]', 'array', true, '域名ID，可重复传多个，也可以用逗号分隔', '1'],
+                        ['remark', 'string', false, 'batchedit 时的备注', ''],
+                        ['is_notice', 'int', false, 'batchsetnotice 时 0/1', ''],
+                    ], '{"code":0,"msg":"..."}'],
+                    ['/api/domain/updatedate', 'domain:write', '通过WHOIS刷新域名注册和到期时间', [
+                        ['id', 'int', true, '域名ID', '1'],
+                    ], '{"code":0,"regTime":"2020-01-01 00:00:00","expireTime":"2027-01-01 00:00:00"}'],
+                    ['/api/domain/setcategory', 'domain:write', '批量设置域名分类', [
+                        ['ids[]', 'array', true, '域名ID', '1'],
+                        ['cid', 'int', true, '分类ID，0为未分类', '1'],
+                    ], '{"code":0,"msg":"成功设置1个域名的分类！"}'],
+                    ['/api/record/alias/{id}', 'domain:write', '域名别名（仅腾讯云）：act=list 查询（需查看域名权限）/ add 添加 / delete 删除', [
+                        ['act', 'string', true, 'list / add / delete', 'list'],
+                        ['alias', 'string', false, 'add 时的别名域名', ''],
+                        ['alias_id', 'int', false, 'delete 时的别名ID', ''],
+                    ], '{"code":0,"data":[...]}'],
+                ],
+            ],
+            [
+                'key' => 'record',
+                'name' => '解析记录',
+                'items' => [
+                    ['/api/record/data/{id}', 'record:read', '获取解析记录列表（{id} 为域名ID）', array_merge([
+                        ['keyword', 'string', false, '关键词', ''],
+                        ['subdomain', 'string', false, '主机记录，如 www', ''],
+                        ['value', 'string', false, '记录值', ''],
+                        ['type', 'string', false, '记录类型', ''],
+                        ['line', 'string', false, '线路ID', ''],
+                        ['status', 'int', false, '1启用 0暂停', ''],
+                    ], $page), '{"total":2,"rows":[{"RecordId":"123","Domain":"example.com","Name":"www","Type":"A","Value":"1.2.3.4","Line":"default","LineName":"默认","TTL":600,"MX":null,"Status":"1","Weight":null,"Remark":null,"UpdateTime":"..."}]}', 'origin'],
+                    ['/api/record/list', 'record:read', '按主机记录查询解析（如查 www 的所有记录）', [
+                        ['id', 'int', true, '域名ID', '1'],
+                        ['rr', 'string', true, '主机记录，如 www、@', 'www'],
+                    ], '{"code":0,"data":[{"RecordId":"123","Name":"www","Type":"A","Value":"1.2.3.4","Line":"default","LineName":"默认","TTL":600, ...}]}'],
+                    ['/api/record/add/{id}', 'record:write', '添加解析记录', [
+                        ['name', 'string', true, '主机记录，如 www、@、*', 'www'],
+                        ['type', 'string', true, '记录类型 A/AAAA/CNAME/MX/TXT/NS/SRV/CAA 等', 'A'],
+                        ['value', 'string', true, '记录值', '1.2.3.4'],
+                        ['line', 'string', false, '线路ID，可通过 /api/domain/{id} 获取，默认为默认线路', 'default'],
+                        ['ttl', 'int', false, 'TTL，默认600', '600'],
+                        ['mx', 'int', false, 'MX优先级', ''],
+                        ['weight', 'int', false, '权重', ''],
+                        ['remark', 'string', false, '备注', ''],
+                    ], '{"code":0,"msg":"添加解析记录成功！"}', 'origin'],
+                    ['/api/record/update/{id}', 'record:write', '修改解析记录', [
+                        ['recordid', 'string', true, '记录ID', '123'],
+                        ['name', 'string', true, '主机记录', 'www'],
+                        ['type', 'string', true, '记录类型', 'A'],
+                        ['value', 'string', true, '记录值', '5.6.7.8'],
+                        ['line', 'string', false, '线路ID', 'default'],
+                        ['ttl', 'int', false, 'TTL', '600'],
+                        ['mx', 'int', false, 'MX优先级', ''],
+                        ['weight', 'int', false, '权重', ''],
+                        ['remark', 'string', false, '备注', ''],
+                    ], '{"code":0,"msg":"修改解析记录成功！"}', 'origin'],
+                    ['/api/record/delete/{id}', 'record:write', '删除解析记录', [
+                        ['recordid', 'string', true, '记录ID', '123'],
+                    ], '{"code":0,"msg":"删除解析记录成功！"}', 'origin'],
+                    ['/api/record/status/{id}', 'record:write', '启用/暂停解析记录', [
+                        ['recordid', 'string', true, '记录ID', '123'],
+                        ['status', 'int', true, '1启用 0暂停', '0'],
+                    ], '{"code":0,"msg":"操作成功！"}', 'origin'],
+                    ['/api/record/remark/{id}', 'record:write', '修改解析备注', [
+                        ['recordid', 'string', true, '记录ID', '123'],
+                        ['remark', 'string', false, '备注，留空清除', 'web'],
+                    ], '{"code":0,"msg":"操作成功！"}', 'origin'],
+                    ['/api/record/batchedit2', 'record:write', '按主机记录修改解析值（找到该主机记录下的同类型记录直接修改，适合DDNS/快速切换）', [
+                        ['id', 'int', true, '域名ID', '1'],
+                        ['name', 'string', true, '主机记录', 'home'],
+                        ['type', 'string', true, '记录类型', 'A'],
+                        ['value', 'string', true, '新的记录值', '1.2.3.4'],
+                        ['ttl', 'int', false, 'TTL，不传则不修改', ''],
+                        ['mx', 'int', false, 'MX优先级', ''],
+                    ], '{"code":0,"msg":"成功修改1条解析记录"}'],
+                    ['/api/record/batchadd/{id}', 'record:write', '批量添加解析', [
+                        ['record', 'string', true, '每行一条“主机记录 记录值”，如 "www 1.2.3.4"', "www 1.2.3.4\nmail 1.2.3.5"],
+                        ['type', 'string', false, '记录类型，留空根据记录值自动判断A/AAAA/CNAME', ''],
+                        ['line', 'string', false, '线路ID，默认为默认线路', ''],
+                        ['ttl', 'int', false, 'TTL', '600'],
+                        ['mx', 'int', false, 'MX优先级', ''],
+                        ['remark', 'string', false, '备注', ''],
+                    ], '{"code":0,"msg":"批量添加解析，成功2条，失败0条"}'],
+                    ['/api/record/batch/{id}', 'record:write', '批量启用/暂停/删除/备注/分组', [
+                        ['action', 'string', true, 'open 启用 / pause 暂停 / delete 删除 / remark 备注 / group 分组', 'pause'],
+                        ['recordinfo', 'json', true, '记录数组JSON，每项至少包含 RecordId、Name、Type、Value、Line、TTL（可直接用记录列表返回的数据）', '[{"RecordId":"123","Name":"www","Type":"A","Value":"1.2.3.4","Line":"default","TTL":600}]'],
+                        ['remark', 'string', false, 'action=remark 时的备注', ''],
+                        ['groupid', 'string', false, 'action=group 时的分组ID（阿里云/腾讯云）', ''],
+                    ], '{"code":0,"msg":"成功暂停1条解析记录"}', 'origin'],
+                    ['/api/record/batchedit/{id}', 'record:write', '批量修改记录值或线路', [
+                        ['action', 'string', true, 'value 修改记录值 / line 修改线路', 'value'],
+                        ['recordinfo', 'json', true, '记录数组JSON，每项需包含 RecordId、Name、Type、Value、Line、TTL、MX、Weight、Remark', '[{"RecordId":"123","Name":"www","Type":"A","Value":"1.2.3.4","Line":"default","TTL":600,"MX":null,"Weight":null,"Remark":null}]'],
+                        ['type', 'string', false, 'action=value 时的新记录类型', 'A'],
+                        ['value', 'string', false, 'action=value 时的新记录值', '5.6.7.8'],
+                        ['line', 'string', false, 'action=line 时的新线路', ''],
+                    ], '{"code":0,"msg":"批量修改解析记录，成功1条，失败0条"}'],
+                    ['/api/record/check/{id}', 'record:read', '检测解析是否已生效（通过公共DNS查询）', [
+                        ['recordid', 'string', true, '记录ID', '123'],
+                        ['name', 'string', true, '主机记录', 'www'],
+                        ['type', 'string', true, '记录类型', 'A'],
+                        ['value', 'string', false, '期望的记录值', '1.2.3.4'],
+                    ], '{"code":0,"data":{"status":"active","actual":["1.2.3.4"]}}  // status: active 已生效 / mismatch 不一致 / not_found 未查到'],
+                    ['/api/record/quickinfo/{id}', 'record:read', '获取域名的解析线路、最小TTL、是否支持权重和备注', [], '{"code":0,"data":{"recordLine":[...],"minTTL":600,"weight":false,"remark":1}}'],
+                    ['/api/record/log/{id}', 'record:read', '获取DNS平台的解析变更日志（部分平台支持）', $page, '{"total":10,"rows":[...]}'],
+                    ['/api/record/groups/{id}', 'record:read', '获取解析分组（阿里云/腾讯云）', [], '{"code":0,"data":[{"id":"1","name":"默认分组(5)"}]}'],
+                    ['/api/record/weight/data/{id}', 'record:read', '获取权重配置列表（阿里云）', array_merge([['keyword', 'string', false, '关键词', '']], $page), '{"total":1,"rows":[...]}'],
+                    ['/api/record/weight/{id}', 'record:write', '设置权重（阿里云）', [
+                        ['act', 'string', true, 'status 开关 / update 修改权重', 'update'],
+                        ['subdomain', 'string', true, '主机记录', 'www'],
+                        ['type', 'string', true, '记录类型', 'A'],
+                        ['line', 'string', true, '线路', 'default'],
+                        ['status', 'int', false, '1开启 0关闭', '1'],
+                        ['weight[记录ID]', 'int', false, 'act=update 时各记录的权重，如 weight[123]=10', ''],
+                    ], '{"code":0,"msg":"修改成功"}'],
+                ],
+            ],
+            [
+                'key' => 'cert',
+                'name' => 'SSL证书',
+                'items' => [
+                    ['/api/cert/account/data', 'cert:read', '获取SSL证书账户列表（不返回任何账户密钥）。请求地址需带 ?deploy=0', array_merge([['kw', 'string', false, '搜索关键词', '']], $page), '{"total":1,"rows":[{"id":1,"type":"letsencrypt","typename":"Let\'s Encrypt","name":"me@****","remark":""}]}', null, '?deploy=0'],
+                    ['/api/cert/order/data', 'cert:read', '获取证书订单列表（不返回证书和私钥内容）', array_merge([
+                        ['domain', 'string', false, '按域名搜索', ''],
+                        ['id', 'int', false, '订单ID', ''],
+                        ['aid', 'int', false, '证书账户ID', ''],
+                        ['status', 'int', false, '0待提交 1待验证 2正在验证 3已签发 4已吊销 5失败 6即将过期 7已过期', ''],
+                    ], $page), '{"total":1,"rows":[{"id":1,"aid":1,"keytype":"RSA","keysize":"2048","status":3,"issuer":"R11","issuetime":"...","expiretime":"...","end_day":89,"isauto":1,"domains":["example.com","*.example.com"],"error":null,"processid":"...", ...}]}'],
+                    ['/api/cert/order/add', 'cert:write', '创建证书订单（申请新证书）', [
+                        ['aid', 'int', true, '证书账户ID（通过 /api/cert/account/data 获取）', '1'],
+                        ['domains[]', 'array', true, '绑定的域名，可重复传多个，支持通配符', 'example.com'],
+                        ['keytype', 'string', true, 'RSA 或 ECC', 'RSA'],
+                        ['keysize', 'string', true, 'RSA: 2048/3072，ECC: 256/384', '2048'],
+                    ], '{"code":0,"msg":"添加证书订单成功！"}  // 创建后计划任务会自动申请，也可调用 /api/cert/order/process 立即申请'],
+                    ['/api/cert/order/add', 'cert:write', '上传已有证书（手动续期证书）', [
+                        ['aid', 'int', true, '固定为 -1', '-1'],
+                        ['fullchain', 'string', true, '证书内容（PEM）', '-----BEGIN CERTIFICATE-----...'],
+                        ['privatekey', 'string', true, '私钥内容（PEM）', '-----BEGIN PRIVATE KEY-----...'],
+                    ], '{"code":0,"msg":"添加证书订单成功！"}'],
+                    ['/api/cert/order/process', 'cert:write', '立即申请/继续申请证书；reset=1 时重新申请（手动续签）', [
+                        ['id', 'int', true, '订单ID', '1'],
+                        ['reset', 'int', false, '1=重置后重新申请', '0'],
+                    ], '{"code":0,"msg":"证书已签发成功！"}  // 或 "添加DNS记录成功！请等待DNS生效后点击验证"，此时稍后再次调用或等待计划任务自动完成'],
+                    ['/api/cert/order/edit', 'cert:write', '修改证书订单', [
+                        ['id', 'int', true, '订单ID', '1'],
+                        ['aid', 'int', true, '证书账户ID', '1'],
+                        ['domains[]', 'array', true, '绑定的域名', 'example.com'],
+                        ['keytype', 'string', true, 'RSA 或 ECC', 'RSA'],
+                        ['keysize', 'string', true, '密钥长度', '2048'],
+                    ], '{"code":0,"msg":"修改证书订单成功！"}'],
+                    ['/api/cert/order/setauto', 'cert:write', '开启/关闭自动续签', [
+                        ['id', 'int', true, '订单ID', '1'],
+                        ['isauto', 'int', true, '1开启 0关闭', '1'],
+                    ], '{"code":0}'],
+                    ['/api/cert/order/reset', 'cert:write', '重置订单状态', [['id', 'int', true, '订单ID', '1']], '{"code":0}'],
+                    ['/api/cert/order/revoke', 'cert:write', '吊销证书', [['id', 'int', true, '订单ID', '1']], '{"code":0}'],
+                    ['/api/cert/order/del', 'cert:write', '删除证书订单（关联了部署任务时无法删除）', [['id', 'int', true, '订单ID', '1']], '{"code":0}'],
+                    ['/api/cert/order/operation', 'cert:write', '批量操作证书订单', [
+                        ['ids[]', 'array', true, '订单ID', '1'],
+                        ['act', 'string', true, 'delete 删除 / reset 重置 / open 开启自动续签 / close 关闭自动续签', 'open'],
+                    ], '{"code":0,"msg":"成功操作1个证书订单"}'],
+                    ['/api/cert/order/show_log', 'cert:read', '查看申请日志', [
+                        ['id', 'int', false, '订单ID（与 processid 二选一）', '1'],
+                        ['processid', 'string', false, '订单列表返回的 processid', ''],
+                    ], '{"code":0,"data":"日志内容","time":1700000000}'],
+                    ['/api/cert/order', 'cert:download', '获取证书和私钥（高敏感）', [['id', 'int', true, '订单ID', '1']], '{"code":0,"data":{"id":1,"crt":"-----BEGIN CERTIFICATE-----...","key":"-----BEGIN PRIVATE KEY-----...","pfx":"base64...","issuetime":"...","expiretime":"...","domains":["example.com"]}}  // pfx 密码为 123456', 'origin'],
+                    ['/api/cert/order/get', 'cert:download', '获取证书和私钥（与上一个接口相同，返回字段 fullchain/privatekey/pfx）', [['id', 'int', true, '订单ID', '1']], '{"code":0,"data":{"fullchain":"...","privatekey":"...","pfx":"base64..."}}'],
+                    ['/api/cert/cname/data', 'cert:read', 'CNAME代理列表', array_merge([['kw', 'string', false, '搜索域名', '']], $page), '{"total":1,"rows":[{"id":1,"domain":"other.com","did":1,"rr":"other","host":"_acme-challenge","record":"other.example.com","status":1}]}'],
+                    ['/api/cert/cname/add', 'cert:write', '添加CNAME代理（为未托管在本系统的域名申请证书）', [
+                        ['domain', 'string', true, '需要申请证书的域名', 'other.com'],
+                        ['did', 'int', true, '用于接收验证记录的本系统域名ID', '1'],
+                        ['rr', 'string', true, '本系统域名下的主机记录', 'other'],
+                    ], '{"code":0,"msg":"添加CMAME代理成功！"}'],
+                    ['/api/cert/cname/edit', 'cert:write', '修改CNAME代理', [['id', 'int', true, 'ID', '1'], ['did', 'int', true, '域名ID', '1'], ['rr', 'string', true, '主机记录', 'other']], '{"code":0}'],
+                    ['/api/cert/cname/check', 'cert:read', '检测CNAME代理是否生效', [['id', 'int', true, 'ID', '1']], '{"code":0,"status":1}'],
+                    ['/api/cert/cname/del', 'cert:write', '删除CNAME代理', [['id', 'int', true, 'ID', '1']], '{"code":0}'],
+                ],
+            ],
+            [
+                'key' => 'deploy',
+                'name' => '证书推送（自动部署）',
+                'desc' => '部署账户（服务器、面板、云厂商的密钥）只能在后台管理，API不会返回这些密钥；任务配置中的密码类字段会被脱敏。SSH、FTP、复制到本机、S3存储这类可以执行命令或写入服务器任意文件的部署类型，API只能查看和执行，不能创建或修改。',
+                'items' => [
+                    ['/api/cert/account/data', 'deploy:read', '获取部署账户列表（不返回任何账户密钥）。请求地址需带 ?deploy=1', array_merge([['kw', 'string', false, '搜索关键词', '']], $page), '{"total":1,"rows":[{"id":2,"type":"btpanel","typename":"宝塔面板","name":"http****8888","remark":"web1"}]}', null, '?deploy=1'],
+                    ['/api/cert/deploy/data', 'deploy:read', '获取自动部署任务列表', array_merge([
+                        ['oid', 'int', false, '证书订单ID', ''],
+                        ['aid', 'int', false, '部署账户ID', ''],
+                        ['type', 'string', false, '部署类型', ''],
+                        ['status', 'int', false, '0待处理 1成功 -1失败', ''],
+                        ['domain', 'string', false, '按域名搜索', ''],
+                        ['remark', 'string', false, '备注', ''],
+                    ], $page), '{"total":1,"rows":[{"id":1,"aid":2,"oid":1,"type":"btpanel","typename":"宝塔面板","config":{"type":"0","sites":"example.com"},"status":1,"active":1,"lasttime":"...","error":null,"domains":["example.com"],"api_writable":true}]}'],
+                    ['/api/cert/deploy/process', 'deploy:write', '立即推送（执行部署）', [
+                        ['id', 'int', true, '部署任务ID', '1'],
+                        ['reset', 'int', false, '1=先重置状态（已部署成功的任务需要重置才会再次推送）', '1'],
+                    ], '{"code":0,"msg":"SSL证书部署任务执行成功！"}'],
+                    ['/api/cert/deploy/add', 'deploy:write', '创建部署任务', [
+                        ['aid', 'int', true, '部署账户ID', '2'],
+                        ['oid', 'int', true, '证书订单ID', '1'],
+                        ['config', 'json', true, '任务配置JSON，字段与后台添加部署任务表单一致（如宝塔：{"type":"0","sites":"example.com"}）', '{"type":"0","sites":"example.com"}'],
+                        ['remark', 'string', false, '备注', ''],
+                    ], '{"code":0,"msg":"添加自动部署任务成功！"}'],
+                    ['/api/cert/deploy/edit', 'deploy:write', '修改部署任务', [
+                        ['id', 'int', true, '任务ID', '1'],
+                        ['aid', 'int', true, '部署账户ID', '2'],
+                        ['oid', 'int', true, '证书订单ID', '1'],
+                        ['config', 'json', true, '任务配置JSON', '{"type":"0","sites":"example.com"}'],
+                        ['remark', 'string', false, '备注', ''],
+                    ], '{"code":0,"msg":"修改自动部署任务成功！"}'],
+                    ['/api/cert/deploy/setactive', 'deploy:write', '启用/停用部署任务', [['id', 'int', true, '任务ID', '1'], ['active', 'int', true, '1启用 0停用', '1']], '{"code":0}'],
+                    ['/api/cert/deploy/reset', 'deploy:write', '重置任务状态（计划任务会重新推送）', [['id', 'int', true, '任务ID', '1']], '{"code":0}'],
+                    ['/api/cert/deploy/del', 'deploy:write', '删除部署任务', [['id', 'int', true, '任务ID', '1']], '{"code":0}'],
+                    ['/api/cert/deploy/operation', 'deploy:write', '批量操作部署任务', [
+                        ['ids[]', 'array', true, '任务ID', '1'],
+                        ['act', 'string', true, 'delete 删除 / reset 重置 / open 启用 / close 停用 / cert 更换证书', 'reset'],
+                        ['certid', 'int', false, 'act=cert 时的新证书订单ID', ''],
+                    ], '{"code":0,"msg":"成功操作1个任务"}'],
+                    ['/api/cert/deploy/show_log', 'deploy:read', '查看部署日志', [
+                        ['id', 'int', false, '任务ID（与 processid 二选一）', '1'],
+                        ['processid', 'string', false, '任务列表返回的 processid', ''],
+                    ], '{"code":0,"data":"日志内容","time":1700000000}'],
+                ],
+            ],
+            [
+                'key' => 'monitor',
+                'name' => '容灾切换',
+                'items' => [
+                    ['/api/dmonitor/task/data', 'monitor:read', '容灾切换策略列表', array_merge([
+                        ['type', 'int', false, '搜索类型：1域名 2记录ID 3主地址 4备用地址 5备注', '1'],
+                        ['kw', 'string', false, '搜索关键词', ''],
+                        ['status', 'int', false, '0正常 1异常', ''],
+                    ], $page), '{"total":1,"rows":[{"id":1,"did":1,"domain":"example.com","rr":"www","recordid":"123","type":1,"main_value":"1.2.3.4","checktype":2,"frequency":60,"status":0,"active":1,"checktimestr":"...", ...}]}'],
+                    ['/api/dmonitor/task/add', 'monitor:write', '添加容灾切换策略', [
+                        ['did', 'int', true, '域名ID', '1'],
+                        ['rr', 'string', true, '主机记录', 'www'],
+                        ['recordid', 'string', true, '解析记录ID', '123'],
+                        ['type', 'int', true, '0无操作 1暂停解析 2切换备用解析 3条件开启解析', '1'],
+                        ['main_value', 'string', true, '主解析记录值', '1.2.3.4'],
+                        ['backup_value', 'string', false, '备用解析记录（type=2）', ''],
+                        ['checktype', 'int', true, '0 PING / 1 TCP / 2 HTTP(S)', '2'],
+                        ['checkurl', 'string', false, 'HTTP(S)时为检测URL；PING/TCP时为指定检测IP', 'https://example.com/health'],
+                        ['tcpport', 'int', false, 'TCP检测端口', ''],
+                        ['frequency', 'int', true, '检测间隔（秒）', '60'],
+                        ['cycle', 'int', true, '连续失败几次后切换', '3'],
+                        ['timeout', 'int', true, '超时（秒），不能大于检测间隔', '2'],
+                        ['proxy', 'int', false, 'HTTP检测是否使用代理 0/1', '0'],
+                        ['cdn', 'int', false, '是否为CDN（检测时不改Host）0/1', '0'],
+                        ['remark', 'string', false, '备注', ''],
+                        ['recordinfo', 'json', false, '记录信息JSON，如 {"Line":"default","TTL":600}', ''],
+                    ], '{"code":0,"msg":"添加成功"}'],
+                    ['/api/dmonitor/task/edit', 'monitor:write', '修改容灾切换策略（参数同添加，另需传 id）', [['id', 'int', true, '策略ID', '1']], '{"code":0,"msg":"修改成功"}'],
+                    ['/api/dmonitor/task/setactive', 'monitor:write', '开启/关闭策略', [['id', 'int', true, '策略ID', '1'], ['active', 'int', true, '1开启 0关闭', '1']], '{"code":0,"msg":"设置成功"}'],
+                    ['/api/dmonitor/task/del', 'monitor:write', '删除策略', [['id', 'int', true, '策略ID', '1']], '{"code":0,"msg":"删除成功"}'],
+                    ['/api/dmonitor/task/operation', 'monitor:write', '批量操作', [['ids[]', 'array', true, '策略ID', '1'], ['act', 'string', true, 'delete 删除 / retry 立即检测 / open 开启 / close 关闭', 'retry']], '{"code":0,"msg":"成功操作1个容灾切换策略"}'],
+                    ['/api/dmonitor/task/log/data/{id}', 'monitor:read', '切换日志（{id} 为策略ID）', array_merge([['action', 'int', false, '1异常 2恢复', '']], $page), '{"total":1,"rows":[{"id":1,"taskid":1,"action":1,"errmsg":"timeout","date":"..."}]}'],
+                ],
+            ],
+            [
+                'key' => 'schedule',
+                'name' => '定时切换',
+                'items' => [
+                    ['/api/schedule/stask/data', 'schedule:read', '定时切换任务列表', array_merge([
+                        ['type', 'int', false, '搜索类型：1域名 2记录ID 3记录值 4备注', '1'],
+                        ['kw', 'string', false, '搜索关键词', ''],
+                        ['stype', 'int', false, '0单次 1周期', ''],
+                    ], $page), '{"total":1,"rows":[{"id":1,"domain":"example.com","rr":"www","type":0,"switchtype":0,"switchtime":"2026-12-01T10:00","nexttimestr":"...", ...}]}'],
+                    ['/api/schedule/stask/add', 'schedule:write', '添加定时切换任务', [
+                        ['did', 'int', true, '域名ID', '1'],
+                        ['rr', 'string', true, '主机记录', 'www'],
+                        ['recordid', 'string', true, '解析记录ID', '123'],
+                        ['type', 'int', true, '0单次执行 1周期执行', '0'],
+                        ['cycle', 'int', false, '周期：0每天 1每周 2每月（type=1）', '0'],
+                        ['switchdate', 'string', false, '每周几(0-6)或每月几号(1-31)', ''],
+                        ['switchtime', 'string', true, '单次：2026-12-01T10:00；周期：10:00', '2026-12-01T10:00'],
+                        ['switchtype', 'int', true, '0修改解析 1启用解析 2暂停解析 3删除解析（仅单次）', '0'],
+                        ['value', 'string', false, '修改后的记录值（switchtype=0）', '5.6.7.8'],
+                        ['line', 'string', false, 'Cloudflare：0改为仅DNS 1改为代理，留空不修改', ''],
+                        ['remark', 'string', false, '备注', ''],
+                        ['recordinfo', 'json', false, '原记录信息JSON', ''],
+                    ], '{"code":0,"msg":"添加成功"}'],
+                    ['/api/schedule/stask/edit', 'schedule:write', '修改定时切换任务（参数同添加，另需传 id）', [['id', 'int', true, '任务ID', '1']], '{"code":0,"msg":"修改成功"}'],
+                    ['/api/schedule/stask/setactive', 'schedule:write', '开启/关闭任务', [['id', 'int', true, '任务ID', '1'], ['active', 'int', true, '1开启 0关闭', '1']], '{"code":0,"msg":"设置成功"}'],
+                    ['/api/schedule/stask/del', 'schedule:write', '删除任务', [['id', 'int', true, '任务ID', '1']], '{"code":0,"msg":"删除成功"}'],
+                    ['/api/schedule/stask/operation', 'schedule:write', '批量操作', [['ids[]', 'array', true, '任务ID', '1'], ['act', 'string', true, 'delete / open / close', 'open']], '{"code":0}'],
+                ],
+            ],
+            [
+                'key' => 'optimize',
+                'name' => 'CF优选IP',
+                'items' => [
+                    ['/api/optimizeip/opiplist/data', 'optimize:read', '优选IP任务列表', array_merge([
+                        ['type', 'int', false, '搜索类型：1域名 2备注', '1'],
+                        ['kw', 'string', false, '搜索关键词', ''],
+                        ['status', 'int', false, '1成功 2失败', ''],
+                    ], $page), '{"total":1,"rows":[{"id":1,"did":2,"domain":"example.com","rr":"cdn","type":0,"ip_type":"v4","cdn_type":1,"recordnum":2,"ttl":600,"status":1,"active":1, ...}]}'],
+                    ['/api/optimizeip/opipform/add', 'optimize:write', '添加优选IP任务', [
+                        ['did', 'int', true, '域名ID（非Cloudflare解析的域名）', '2'],
+                        ['rr', 'string', true, '主机记录', 'cdn'],
+                        ['type', 'int', true, '0 电信/联通/移动线路 1 默认/联通/移动线路', '0'],
+                        ['ip_type', 'string', true, 'v4 / v6 / v4,v6', 'v4'],
+                        ['cdn_type', 'int', true, '1 CloudFlare / 2 CloudFront / 4 EdgeOne', '1'],
+                        ['recordnum', 'int', true, '每线路解析数量 1-50', '2'],
+                        ['ttl', 'int', true, 'TTL', '600'],
+                        ['remark', 'string', false, '备注', ''],
+                    ], '{"code":0,"msg":"添加成功"}'],
+                    ['/api/optimizeip/opipform/edit', 'optimize:write', '修改优选IP任务（参数同添加，另需传 id）', [['id', 'int', true, '任务ID', '1']], '{"code":0,"msg":"修改成功"}'],
+                    ['/api/optimizeip/opipform/setactive', 'optimize:write', '开启/关闭任务', [['id', 'int', true, '任务ID', '1'], ['active', 'int', true, '1开启 0关闭', '1']], '{"code":0,"msg":"设置成功"}'],
+                    ['/api/optimizeip/opipform/run', 'optimize:write', '立即执行一次优选', [['id', 'int', true, '任务ID', '1']], '{"code":0,"msg":"优选任务执行成功：..."}'],
+                    ['/api/optimizeip/opipform/del', 'optimize:write', '删除任务', [['id', 'int', true, '任务ID', '1']], '{"code":0,"msg":"删除成功"}'],
+                ],
+            ],
+            [
+                'key' => 'cloudflare',
+                'name' => 'Cloudflare增强',
+                'desc' => '自定义主机名（SaaS）接口中的 {id} 为 Cloudflare 域名的域名ID；Tunnel 接口中的 {id} 为 Cloudflare DNS账户ID，且账户需使用 API 令牌认证。出于安全考虑，获取 Tunnel 运行令牌的接口不开放。',
+                'items' => [
+                    ['/api/cloudflare/hostnames/data/{id}', 'cloudflare:read', '自定义主机名列表', [], '{"code":0,"total":1,"rows":[...]}'],
+                    ['/api/cloudflare/hostnames/add/{id}', 'cloudflare:write', '创建自定义主机名', [
+                        ['hostname', 'string', true, '主机名', 'shop.customer.com'],
+                        ['custom_origin_server', 'string', false, '自定义源服务器', ''],
+                        ['ssl_method', 'string', false, 'txt / http', 'txt'],
+                        ['min_tls_version', 'string', false, '1.0 / 1.1 / 1.2 / 1.3', '1.2'],
+                    ], '{"code":0,"msg":"创建自定义主机名成功","data":{...}}'],
+                    ['/api/cloudflare/hostnames/update/{id}', 'cloudflare:write', '修改自定义主机名', [['hostname_id', 'string', true, '自定义主机名ID', ''], ['custom_origin_server', 'string', false, '自定义源服务器', ''], ['ssl_method', 'string', false, 'txt / http', ''], ['min_tls_version', 'string', false, '最低TLS版本', '']], '{"code":0}'],
+                    ['/api/cloudflare/hostnames/refresh/{id}', 'cloudflare:write', '刷新验证状态', [['hostname_id', 'string', true, '自定义主机名ID', '']], '{"code":0}'],
+                    ['/api/cloudflare/hostnames/delete/{id}', 'cloudflare:write', '删除自定义主机名', [['hostname_id', 'string', true, '自定义主机名ID', ''], ['hostname', 'string', false, '主机名（用于日志）', '']], '{"code":0}'],
+                    ['/api/cloudflare/hostnames/batch_add/{id}', 'cloudflare:write', '批量创建自定义主机名', [['hostnames', 'string', true, '每行一个主机名', "a.customer.com\nb.customer.com"], ['custom_origin_server', 'string', false, '自定义源服务器', ''], ['ssl_method', 'string', false, 'txt / http', 'txt'], ['min_tls_version', 'string', false, '最低TLS版本', '1.2']], '{"code":0}'],
+                    ['/api/cloudflare/hostnames/batch_update/{id}', 'cloudflare:write', '批量修改自定义主机名', [['hostname_ids[]', 'array', true, '自定义主机名ID', ''], ['custom_origin_server', 'string', false, '自定义源服务器', ''], ['ssl_method', 'string', false, 'txt / http', ''], ['min_tls_version', 'string', false, '最低TLS版本', '']], '{"code":0}'],
+                    ['/api/cloudflare/hostnames/batch_delete/{id}', 'cloudflare:write', '批量删除自定义主机名', [['hostname_ids[]', 'array', true, '自定义主机名ID', '']], '{"code":0}'],
+                    ['/api/cloudflare/hostnames/txttargets/{id}', 'cloudflare:read', '获取验证所需的TXT记录', [['hostname', 'string', true, '主机名', 'shop.customer.com']], '{"code":0,"data":[...]}'],
+                    ['/api/cloudflare/fallback/get/{id}', 'cloudflare:read', '获取回退源', [], '{"code":0,"data":{...}}'],
+                    ['/api/cloudflare/fallback/set/{id}', 'cloudflare:write', '设置回退源', [['origin', 'string', true, '回退源主机名', 'fallback.example.com']], '{"code":0}'],
+                    ['/api/cloudflare/fallback/delete/{id}', 'cloudflare:write', '删除回退源', [], '{"code":0}'],
+                    ['/api/cloudflare/dcv_delegation_uuid/{id}', 'cloudflare:read', '获取DCV委派UUID', [], '{"code":0,"data":{"uuid":"..."}}'],
+                    ['/api/cloudflare/tunnels/data/{id}', 'cloudflare:read', 'Tunnel列表', [], '{"code":0,"total":1,"rows":[{"id":"...","name":"home","status":"healthy","connection_count":2}]}'],
+                    ['/api/cloudflare/tunnels/add/{id}', 'cloudflare:write', '创建Tunnel', [['name', 'string', true, 'Tunnel名称', 'home']], '{"code":0,"data":{...}}'],
+                    ['/api/cloudflare/tunnels/delete/{id}', 'cloudflare:write', '删除Tunnel', [['tunnel_id', 'string', true, 'Tunnel ID', '']], '{"code":0}'],
+                    ['/api/cloudflare/tunnels/publichostnames/data/{id}', 'cloudflare:read', 'Tunnel公共主机名列表', [['tunnel_id', 'string', true, 'Tunnel ID', '']], '{"code":0,"rows":[...]}'],
+                    ['/api/cloudflare/tunnels/publichostnames/save/{id}', 'cloudflare:write', '保存Tunnel公共主机名', [['tunnel_id', 'string', true, 'Tunnel ID', ''], ['hostname', 'string', true, '公共主机名', 'app.example.com'], ['service', 'string', true, '内网服务地址', 'http://127.0.0.1:8080'], ['path', 'string', false, '路径', '']], '{"code":0}'],
+                    ['/api/cloudflare/tunnels/publichostnames/delete/{id}', 'cloudflare:write', '删除Tunnel公共主机名', [['tunnel_id', 'string', true, 'Tunnel ID', ''], ['hostname', 'string', true, '公共主机名', ''], ['path', 'string', false, '路径', '']], '{"code":0}'],
+                    ['/api/cloudflare/tunnels/cidr/data/{id}', 'cloudflare:read', 'Tunnel CIDR路由列表', [['tunnel_id', 'string', true, 'Tunnel ID', '']], '{"code":0,"rows":[...]}'],
+                    ['/api/cloudflare/tunnels/cidr/add/{id}', 'cloudflare:write', '添加CIDR路由', [['tunnel_id', 'string', true, 'Tunnel ID', ''], ['network', 'string', true, 'CIDR网段', '10.0.0.0/24'], ['comment', 'string', false, '备注', '']], '{"code":0}'],
+                    ['/api/cloudflare/tunnels/cidr/delete/{id}', 'cloudflare:write', '删除CIDR路由', [['tunnel_id', 'string', true, 'Tunnel ID', ''], ['route_id', 'string', true, '路由ID', '']], '{"code":0}'],
+                    ['/api/cloudflare/tunnels/hostnameroutes/data/{id}', 'cloudflare:read', 'Tunnel主机名路由列表', [['tunnel_id', 'string', true, 'Tunnel ID', '']], '{"code":0,"rows":[...]}'],
+                    ['/api/cloudflare/tunnels/hostnameroutes/add/{id}', 'cloudflare:write', '添加主机名路由', [['tunnel_id', 'string', true, 'Tunnel ID', ''], ['hostname', 'string', true, '主机名', ''], ['comment', 'string', false, '备注', '']], '{"code":0}'],
+                    ['/api/cloudflare/tunnels/hostnameroutes/delete/{id}', 'cloudflare:write', '删除主机名路由', [['tunnel_id', 'string', true, 'Tunnel ID', ''], ['route_id', 'string', true, '路由ID', '']], '{"code":0}'],
+                ],
+            ],
+            [
+                'key' => 'log',
+                'name' => '日志与概览',
+                'items' => [
+                    ['/api/stat', 'system:read', '系统概览统计（后台首页数据）', [], '{"domains":12,"tasks":3,"certs":5,"deploys":4,"dmonitor_state":1,"dmonitor_active":3,"dmonitor_status_1":0,"certorder_status_3":5,"certorder_status_5":0,"certorder_status_6":1,"certdeploy_status_2":0,"apikeys":2, ...}'],
+                    ['/api/log/data', 'log:read', '操作日志列表（普通用户只能看到自己的日志）', array_merge([
+                        ['kw', 'string', false, '搜索操作或内容', ''],
+                        ['domain', 'string', false, '按域名筛选', ''],
+                        ['uid', 'int', false, '按用户ID筛选（管理员）', ''],
+                    ], $page), '{"total":1,"rows":[{"id":1,"uid":1000,"action":"添加解析","domain":"example.com","data":"www [A] 1.2.3.4 ... [API:脚本]","addtime":"..."}]}'],
+                ],
+            ],
+        ];
+    }
+}

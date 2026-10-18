@@ -393,7 +393,7 @@ class Cloudflare extends BaseController
                 ->field('A.*, B.type, B.config account_config')
                 ->find();
 
-            if (!$domainRow) {
+            if (!$domainRow || !checkPermission(0, $domainRow['name'])) {
                 throw new Exception('域名不存在');
             }
 
@@ -820,7 +820,7 @@ class Cloudflare extends BaseController
             ->where('A.id', $domainId)
             ->field('A.*,B.type,B.config account_config,B.name account_name,B.remark account_remark')
             ->find();
-        if (!$row) {
+        if (!$row || !api_domain_allowed($row['name'])) {
             throw new Exception('域名不存在');
         }
         if (($row['type'] ?? '') !== 'cloudflare') {
@@ -1329,8 +1329,14 @@ class Cloudflare extends BaseController
 
     private function add_log(string $domain, string $action, string $data): void
     {
+        if (!empty(request()->apiKey)) {
+            if (config_get('api_log', '1') != '1') return;
+            $data .= ' [API:' . request()->apiKey['name'] . ']';
+        } elseif (request()->isApi) {
+            $data .= ' [API]';
+        }
         if (strlen($data) > 500) {
-            $data = substr($data, 0, 500);
+            $data = mb_strcut($data, 0, 500);
         }
         Db::name('log')->insert([
             'uid' => request()->user['id'],

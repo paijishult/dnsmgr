@@ -7,7 +7,8 @@ return [
     // 默认日志记录通道
     'default'      => env('log.channel', 'file'),
     // 日志记录级别
-    'level'        => [],
+    // 不想在服务器上留下程序日志（runtime/log）时，可在 .env 中加入 [LOG] CLOSE = true，或设置环境变量 PHP_LOG_CLOSE=true
+    'level'        => env('log.close', false) ? ['__closed__'] : [],
     // 日志类型记录的通道 ['error'=>'email',...]
     'type_channel' => [],
     // 关闭全局日志写入

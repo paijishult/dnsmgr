@@ -42,7 +42,7 @@ class User extends BaseController
         } else {
             $select->order('id', 'desc');
         }
-        $rows = $select->limit($offset, $limit)->select();
+        $rows = $select->limit($offset, $limit)->withoutField('password,totp_secret')->select();
 
         return json(['total' => $total, 'rows' => $rows]);
     }
@@ -57,6 +57,7 @@ class User extends BaseController
             if (!$row) {
                 return json(['code' => -1, 'msg' => '用户不存在']);
             }
+            unset($row['password'], $row['totp_secret']);
             $row['permission'] = Db::name('permission')->where('uid', $id)->column('domain');
             return json(['code' => 0, 'data' => $row]);
         } elseif ($act == 'add') {
@@ -156,6 +157,8 @@ class User extends BaseController
                 return json(['code' => -1, 'msg' => '当前登录用户无法删除']);
             }
             Db::name('user')->where('id', $id)->delete();
+            Db::name('permission')->where('uid', $id)->delete();
+            Db::name('apikey')->where('uid', $id)->delete();
             return json(['code' => 0]);
         }
         return json(['code' => -3]);
@@ -187,6 +190,9 @@ class User extends BaseController
         }
         if (!empty($domain)) {
             $select->where('domain', $domain);
+        }
+        if (api_domains() !== null) {
+            $select->where('domain', 'in', api_domains());
         }
         $total = $select->count();
         $rows = $select->order('id', 'desc')->limit($offset, $limit)->select();

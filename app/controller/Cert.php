@@ -64,6 +64,11 @@ class Cert extends BaseController
                     $row['icon'] = CertHelper::$cert_config[$row['type']]['icon'];
                 }
             }
+            // 列表中不输出账户密钥配置
+            unset($row['config'], $row['ext']);
+            if ($this->request->isApi) {
+                $row['name'] = \app\lib\ApiKeyHelper::maskText($row['name']);
+            }
             $list[] = $row;
         }
 
@@ -230,6 +235,9 @@ class Cert extends BaseController
         $orderDir = strtolower(input('post.sortOrder', 'desc')) === 'asc' ? 'asc' : 'desc';
 
         $select = Db::name('cert_order')->alias('A')->leftJoin('cert_account B', 'A.aid = B.id');
+        if (api_domains() !== null) {
+            $select->whereIn('A.id', $this->apiAllowedOrderIds() ?: [0]);
+        }
         if (!empty($id)) {
             $select->where('A.id', $id);
         } elseif (!empty($domain)) {
@@ -270,6 +278,7 @@ class Cert extends BaseController
             } else {
                 $row['typename'] = null;
             }
+            unset($row['fullchain'], $row['privatekey']);
             $row['domains'] = Db::name('cert_domain')->where('oid', $row['id'])->order('sort', 'ASC')->column('domain');
             $row['end_day'] = $row['expiretime'] ? ceil((strtotime($row['expiretime']) - time()) / 86400) : null;
             if ($row['error']) $row['error'] = htmlspecialchars(str_replace("'", "\\'", $row['error']));
@@ -284,7 +293,9 @@ class Cert extends BaseController
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $id = input('post.id/d');
         $row = Db::name('cert_order')->where('id', $id)->find();
-        if (!$row) return json(['code' => -1, 'msg' => '证书订单不存在']);
+        if (!$row || !$this->apiOrderAllowed($id)) return json(['code' => -1, 'msg' => '证书订单不存在']);
+        if (empty($row['fullchain']) || empty($row['privatekey'])) return json(['code' => -1, 'msg' => '证书尚未签发']);
+        $this->apiLog('获取证书', '订单ID:' . $id);
         $pfx = CertHelper::getPfx($row['fullchain'], $row['privatekey']);
         $row['pfx'] = base64_encode($pfx);
         return json(['code' => 0, 'data' => ['id' => $row['id'], 'crt' => $row['fullchain'], 'key' => $row['privatekey'], 'pfx' => $row['pfx'], 'issuetime' => $row['issuetime'], 'expiretime' => $row['expiretime'], 'domains' => Db::name('cert_domain')->where('oid', $row['id'])->order('sort', 'ASC')->column('domain')]]);
@@ -294,6 +305,27 @@ class Cert extends BaseController
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
+        if (api_domains() !== null) {
+            $ids = input('?post.ids') ? (array)input('post.ids') : (input('?post.id') ? [input('post.id/d')] : []);
+            foreach ($ids as $oid) {
+                if (!$this->apiOrderAllowed($oid)) return json(['code' => -1, 'msg' => '证书订单不存在或不在API密钥允许的域名范围内']);
+            }
+            if (in_array($action, ['add', 'edit'])) {
+                $checkDomains = input('post.aid/d') == -1 ? [] : (array)input('post.domains', []);
+                if (input('post.aid/d') == -1 && input('post.fullchain')) {
+                    $info = @openssl_x509_parse((string)input('post.fullchain'));
+                    $san = $info['extensions']['subjectAltName'] ?? '';
+                    $checkDomains = array_map(fn($v) => trim(str_replace('DNS:', '', $v)), explode(',', $san));
+                }
+                foreach ($checkDomains as $d) {
+                    if (!is_string($d) || trim($d) === '') continue;
+                    if (!api_domain_allowed($d)) return json(['code' => -1, 'msg' => '域名' . $d . '不在API密钥允许的范围内']);
+                }
+            }
+        }
+        if ($this->request->isApi && in_array($action, ['add', 'edit', 'del', 'setauto', 'reset', 'revoke', 'operation'])) {
+            $this->apiLog('证书订单:' . $action, $action == 'add' ? implode(',', (array)input('post.domains', [])) : 'ID:' . (input('post.id') ?: implode(',', (array)input('post.ids', []))));
+        }
 
         if ($action == 'get') {
             $id = input('post.id/d');
@@ -469,11 +501,19 @@ class Cert extends BaseController
             }
         } elseif ($action == 'show_log') {
             $processid = input('post.processid');
+            if ($this->request->isApi && !$processid && input('post.id/d')) {
+                $processid = Db::name('cert_order')->where('id', input('post.id/d'))->value('processid');
+            }
+            if ($this->request->isApi && api_domains() !== null) {
+                $oid = Db::name('cert_order')->where('processid', (string)$processid)->value('id');
+                if (!$oid || !$this->apiOrderAllowed($oid)) return json(['code' => -1, 'msg' => '日志文件不存在']);
+            }
             $file = $this->getProcessLogFile($processid);
             if ($file === false) return json(['code' => -1, 'msg' => '日志文件不存在']);
-            return json(['code' => 0, 'data' => file_get_contents($file), 'time' => filemtime($file)]);
+            return json(['code' => 0, 'data' => $this->filterLog(file_get_contents($file)), 'time' => filemtime($file)]);
         } elseif ($action == 'operation') {
             $ids = input('post.ids');
+            if (!is_array($ids) || empty($ids)) return json(['code' => -1, 'msg' => '请选择要操作的证书订单']);
             $success = 0;
             foreach ($ids as $id) {
                 if (input('post.act') == 'delete') {
@@ -604,6 +644,8 @@ class Cert extends BaseController
         }
         $id = input('post.id/d');
         $reset = input('post.reset/d', 0);
+        if (!$this->apiOrderAllowed($id)) return json(['code' => -1, 'msg' => '证书订单不存在']);
+        $this->apiLog($reset == 1 ? '重新申请证书' : '执行证书申请', '订单ID:' . $id);
         try {
             $service = new CertOrderService($id);
             if ($reset == 1) {
@@ -617,7 +659,7 @@ class Cert extends BaseController
             }
             return json(['code' => 0, 'msg' => '证书处理完成']);
         } catch (Exception $e) {
-            return json(['code' => -1, 'msg' => $e->getMessage(), 'trace' => $e->getTrace()]);
+            return json(['code' => -1, 'msg' => $e->getMessage()] + ($this->request->isApi ? [] : ['trace' => $e->getTrace()]));
         }
     }
 
@@ -676,6 +718,9 @@ class Cert extends BaseController
         $orderDir = strtolower(input('post.sortOrder', 'desc')) === 'asc' ? 'asc' : 'desc';
 
         $select = Db::name('cert_deploy')->alias('A')->leftJoin('cert_account B', 'A.aid = B.id')->leftJoin('cert_order C', 'A.oid = C.id')->leftJoin('cert_account D', 'C.aid = D.id');
+        if (api_domains() !== null) {
+            $select->whereIn('A.oid', $this->apiAllowedOrderIds() ?: [0]);
+        }
         if (!empty($oid)) {
             $select->where('A.oid', $oid);
         } elseif (!empty($domain)) {
@@ -716,6 +761,14 @@ class Cert extends BaseController
             }
             $row['domains'] = Db::name('cert_domain')->where('oid', $row['oid'])->order('sort', 'ASC')->column('domain');
             if ($row['error']) $row['error'] = htmlspecialchars(str_replace("'", "\\'", $row['error']));
+            unset($row['info']);
+            if ($this->request->isApi) {
+                // API只输出脱敏后的任务配置与部署账户名称
+                $config = json_decode($row['config'] ?? '', true);
+                $row['config'] = is_array($config) ? \app\lib\ApiKeyHelper::redact($config) : null;
+                $row['aname'] = \app\lib\ApiKeyHelper::maskText($row['aname']);
+                $row['api_writable'] = self::deployTypeApiWritable($row['type']);
+            }
             $list[] = $row;
         }
 
@@ -726,6 +779,10 @@ class Cert extends BaseController
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
+        if ($this->request->isApi) {
+            $res = $this->apiDeployCheck($action);
+            if ($res !== true) return json(['code' => -1, 'msg' => $res]);
+        }
 
         if ($action == 'add') {
             $task = [
@@ -774,11 +831,19 @@ class Cert extends BaseController
             }
         } elseif ($action == 'show_log') {
             $processid = input('post.processid');
+            if ($this->request->isApi && !$processid && input('post.id/d')) {
+                $processid = Db::name('cert_deploy')->where('id', input('post.id/d'))->value('processid');
+            }
+            if ($this->request->isApi && api_domains() !== null) {
+                $oid = Db::name('cert_deploy')->where('processid', (string)$processid)->value('oid');
+                if (!$oid || !$this->apiOrderAllowed($oid)) return json(['code' => -1, 'msg' => '日志文件不存在']);
+            }
             $file = $this->getProcessLogFile($processid);
             if ($file === false) return json(['code' => -1, 'msg' => '日志文件不存在']);
-            return json(['code' => 0, 'data' => file_get_contents($file), 'time' => filemtime($file)]);
+            return json(['code' => 0, 'data' => $this->filterLog(file_get_contents($file)), 'time' => filemtime($file)]);
         } elseif ($action == 'operation') {
             $ids = input('post.ids');
+            if (!is_array($ids) || empty($ids)) return json(['code' => -1, 'msg' => '请选择要操作的任务']);
             $success = 0;
             $certid = 0;
             if (input('post.act') == 'cert') {
@@ -822,6 +887,11 @@ class Cert extends BaseController
         }
         $id = input('post.id/d');
         $reset = input('post.reset/d', 0);
+        if ($this->request->isApi) {
+            $oid = Db::name('cert_deploy')->where('id', $id)->value('oid');
+            if (!$oid || !$this->apiOrderAllowed($oid)) return json(['code' => -1, 'msg' => '自动部署任务不存在']);
+            $this->apiLog('执行证书部署', '任务ID:' . $id);
+        }
         try {
             $service = new CertDeployService($id);
             if ($reset == 1) {
@@ -830,7 +900,7 @@ class Cert extends BaseController
             $service->process(true);
             return json(['code' => 0, 'msg' => 'SSL证书部署任务执行成功！']);
         } catch (Exception $e) {
-            return json(['code' => -1, 'msg' => $e->getMessage(), 'trace' => $e->getTrace()]);
+            return json(['code' => -1, 'msg' => $e->getMessage()] + ($this->request->isApi ? [] : ['trace' => $e->getTrace()]));
         }
     }
 
@@ -897,6 +967,13 @@ class Cert extends BaseController
         $orderDir = strtolower(input('post.sortOrder', 'desc')) === 'asc' ? 'asc' : 'desc';
 
         $select = Db::name('cert_cname')->alias('A')->leftJoin('domain B', 'A.did = B.id');
+        if (api_domains() !== null) {
+            $allowed = [];
+            foreach (Db::name('cert_cname')->column('domain', 'id') as $cid => $cdomain) {
+                if (api_domain_allowed($cdomain)) $allowed[] = $cid;
+            }
+            $select->whereIn('A.id', $allowed ?: [0]);
+        }
         if (!empty($kw)) {
             $select->whereLike('A.domain', '%' . $kw . '%');
         }
@@ -933,6 +1010,21 @@ class Cert extends BaseController
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
+        if (api_domains() !== null) {
+            if ($action == 'add' && !api_domain_allowed(input('post.domain', '', 'trim'))) {
+                return json(['code' => -1, 'msg' => '该域名不在API密钥允许的范围内']);
+            }
+            if (input('?post.id')) {
+                $cdomain = Db::name('cert_cname')->where('id', input('post.id/d'))->value('domain');
+                if (!$cdomain || !api_domain_allowed($cdomain)) return json(['code' => -1, 'msg' => 'CNAME代理不存在']);
+            }
+            if (input('?post.did') && !api_domain_allowed((string)Db::name('domain')->where('id', input('post.did/d'))->value('name'))) {
+                return json(['code' => -1, 'msg' => '验证记录所在域名不在API密钥允许的范围内']);
+            }
+        }
+        if ($this->request->isApi && in_array($action, ['add', 'edit', 'del'])) {
+            $this->apiLog('CNAME代理:' . $action, (string)(input('post.domain') ?: input('post.id')));
+        }
 
         if ($action == 'add') {
             $data = [
@@ -995,6 +1087,100 @@ class Cert extends BaseController
             return json(['code' => 0, 'status' => $status]);
         }
         return json(['code' => -3]);
+    }
+
+    /**
+     * API密钥限定域名范围时，可访问的证书订单ID
+     */
+    private function apiAllowedOrderIds()
+    {
+        $ids = [];
+        $orders = [];
+        foreach (Db::name('cert_domain')->field('oid,domain')->select() as $row) {
+            $orders[$row['oid']][] = $row['domain'];
+        }
+        foreach ($orders as $oid => $domains) {
+            $ok = true;
+            foreach ($domains as $d) {
+                if (!api_domain_allowed($d)) {
+                    $ok = false;
+                    break;
+                }
+            }
+            if ($ok) $ids[] = $oid;
+        }
+        return $ids;
+    }
+
+    private function apiOrderAllowed($oid)
+    {
+        if (api_domains() === null) return true;
+        $domains = Db::name('cert_domain')->where('oid', intval($oid))->column('domain');
+        if (empty($domains)) return false;
+        foreach ($domains as $d) {
+            if (!api_domain_allowed($d)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * 可以在服务器上执行命令或写本机文件的部署类型，不允许通过API创建或修改
+     */
+    public static function deployTypeApiWritable($type)
+    {
+        // 这些类型可以把证书私钥写到任意路径或执行命令，只允许在后台配置
+        if (in_array($type, ['local', 'ssh', 'ftp', 's3storage'])) return false;
+        foreach (array_keys(DeployHelper::$deploy_config[$type]['taskinputs'] ?? []) as $field) {
+            if (preg_match('/(^|_)(cmd|command|script|shell|exec)($|_)/i', $field)) return false;
+        }
+        return true;
+    }
+
+    /**
+     * API调用部署任务管理接口时的安全检查
+     * @return true|string
+     */
+    private function apiDeployCheck($action)
+    {
+        $ids = input('?post.ids') ? (array)input('post.ids') : (input('?post.id') ? [input('post.id/d')] : []);
+        foreach ($ids as $tid) {
+            $task = Db::name('cert_deploy')->alias('A')->leftJoin('cert_account B', 'A.aid = B.id')->where('A.id', intval($tid))->field('A.oid,B.type')->find();
+            if (!$task || !$this->apiOrderAllowed($task['oid'])) return '自动部署任务不存在';
+            if ($action == 'edit' && !self::deployTypeApiWritable($task['type'])) return '出于安全考虑，该类型（SSH/FTP/复制到本机/S3存储）的部署任务只能在后台修改';
+        }
+        if (in_array($action, ['add', 'edit'])) {
+            $type = Db::name('cert_account')->where('id', input('post.aid/d'))->where('deploy', 1)->value('type');
+            if (!$type) return '自动部署账户不存在';
+            if (!self::deployTypeApiWritable($type)) return '出于安全考虑，「' . (DeployHelper::$deploy_config[$type]['name'] ?? $type) . '」类型的部署任务只能在后台创建和修改';
+            $config = json_decode((string)input('post.config'), true);
+            if (!is_array($config)) return '任务配置 config 需要是JSON字符串';
+            if (!$this->apiOrderAllowed(input('post.oid/d'))) return '证书订单不存在';
+            if (!Db::name('cert_order')->where('id', input('post.oid/d'))->find()) return '证书订单不存在';
+        }
+        if ($action == 'operation' && input('post.act') == 'cert') {
+            if (!$this->apiOrderAllowed(input('post.certid/d'))) return '证书订单不存在';
+        }
+        if (in_array($action, ['add', 'edit', 'del', 'setactive', 'reset', 'operation'])) {
+            $this->apiLog('部署任务:' . $action, 'ID:' . (input('post.id') ?: implode(',', $ids)));
+        }
+        return true;
+    }
+
+    /**
+     * 过滤日志中可能出现的私钥、密码等敏感信息
+     */
+    private function filterLog($content)
+    {
+        $content = preg_replace('/-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----/s', '[PRIVATE KEY]', (string)$content);
+        if ($this->request->isApi) {
+            $content = preg_replace('/("?(?:password|passwd|secret|token|apikey|api_key|accesskey|access_key|secretkey|secret_key)"?\s*[:=]\s*"?)[^"\s,&}]+/i', '$1******', $content);
+        }
+        return $content;
+    }
+
+    private function apiLog($action, $data)
+    {
+        api_write_log($action, $data);
     }
 
     private function getProcessLogFile($processid)
