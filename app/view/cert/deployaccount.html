@@ -1,6 +1,19 @@
 {extend name="common/layout" /}
 {block name="title"}自动部署任务账户管理{/block}
 {block name="main"}
+<style>
+.acct-test{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;line-height:20px;padding:1px 9px;border-radius:999px;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:default}
+.acct-test .dot{width:7px;height:7px;border-radius:50%;flex:none;background:currentColor}
+.acct-test.idle{color:#86868b;background:rgba(0,0,0,.045)}
+.acct-test.ok{color:#248a3d;background:rgba(52,199,89,.14)}
+.acct-test.fail{color:#d70015;background:rgba(255,59,48,.11);cursor:pointer}
+.acct-test.run{color:#0071e3;background:rgba(0,113,227,.1)}
+.acct-test.run .dot{background:none;border:1.6px solid currentColor;border-top-color:transparent;width:10px;height:10px;animation:acct-spin .7s linear infinite}
+.acct-test .when{opacity:.7}
+@keyframes acct-spin{to{transform:rotate(360deg)}}
+.acct-test-summary{margin-left:6px;font-size:13px;color:#6e6e73;vertical-align:middle}
+.acct-test-summary b.ok{color:#248a3d}.acct-test-summary b.fail{color:#d70015}
+</style>
 <div class="row">
 	<div class="col-xs-12 center-block" style="float: none;">
 	<div class="panel panel-default panel-intro">
@@ -14,6 +27,8 @@
   <button type="submit" class="btn btn-primary"><i class="fa fa-search"></i> 搜索</button>
   <a href="javascript:searchClear()" class="btn btn-default" title="刷新SSL证书账户列表"><i class="fa fa-refresh"></i> 刷新</a>
   <a href="/cert/account/add?deploy=1" class="btn btn-success"><i class="fa fa-plus"></i> 添加</a>
+  <a href="javascript:testAll()" class="btn btn-default" id="testAllBtn" title="逐个检测所有自动部署账户能否正常连接/登录，不会部署证书"><i class="fa fa-plug"></i> 一键测试</a>
+  <span id="testSummary" class="acct-test-summary"></span>
 </form>
 
       <table id="listTable">
@@ -77,10 +92,17 @@ $(document).ready(function(){
 				sortable: true
 			},
 			{
+				field: 'teststatus',
+				title: '可用性',
+				formatter: function(value, row, index) {
+					return '<span id="acct-test-'+row.id+'">'+renderTest(row.id)+'</span>';
+				}
+			},
+			{
 				field: 'action',
 				title: '操作',
 				formatter: function(value, row, index) {
-					var html = '<a href="/cert/account/edit?deploy=1&id='+row.id+'" class="btn btn-info btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a> <a href="/cert/deploytask?aid='+row.id+'" class="btn btn-default btn-xs">任务</a>';
+					var html = '<a href="/cert/account/edit?deploy=1&id='+row.id+'" class="btn btn-info btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a> <a href="/cert/deploytask?aid='+row.id+'" class="btn btn-default btn-xs">任务</a> <a href="javascript:testOne('+row.id+')" class="btn btn-success btn-xs"><i class="fa fa-plug"></i> 测试</a>';
 					return html;
 				}
 			},
@@ -90,6 +112,79 @@ $(document).ready(function(){
 		},
 	})
 })
+var TEST_KEY = 'deployaccount_test';
+var testResults = {};
+try { testResults = JSON.parse(localStorage.getItem(TEST_KEY) || '{}') || {}; } catch (e) { testResults = {}; }
+function saveTests(){ try { localStorage.setItem(TEST_KEY, JSON.stringify(testResults)); } catch (e) {} }
+function fmtAgo(ts){
+	var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+	if (s < 60) return '刚刚';
+	if (s < 3600) return Math.floor(s / 60) + '分钟前';
+	if (s < 86400) return Math.floor(s / 3600) + '小时前';
+	return Math.floor(s / 86400) + '天前';
+}
+function renderTest(id){
+	var r = testResults[id];
+	if (!r) return '<span class="acct-test idle"><span class="dot"></span>未测试</span>';
+	if (r.status == 'run') return '<span class="acct-test run"><span class="dot"></span>测试中…</span>';
+	if (r.status == 'ok') return '<span class="acct-test ok" title="测试时间：'+new Date(r.at).toLocaleString()+'"><span class="dot"></span>可用 · '+r.time+'ms <span class="when">'+fmtAgo(r.at)+'</span></span>';
+	return '<span class="acct-test fail" onclick="showTestError('+id+')" title="'+htmlEscape(r.msg)+'"><span class="dot"></span>不可用 <span class="when">'+fmtAgo(r.at)+'</span></span>';
+}
+function paintTest(id){ $('#acct-test-'+id).html(renderTest(id)); }
+function showTestError(id){
+	var r = testResults[id];
+	if (r && r.msg) layer.alert(htmlEscape(r.msg), {icon: 2, title: '账户ID '+id+' 测试失败'});
+}
+function runTest(id){
+	testResults[id] = {status: 'run'};
+	paintTest(id);
+	return $.ajax({type: 'POST', url: '/cert/account/check', data: {id: id, deploy: 1}, dataType: 'json', timeout: 130000})
+	.then(function(data){
+		testResults[id] = {status: data.code == 0 ? 'ok' : 'fail', msg: data.msg, time: data.time || 0, at: Date.now()};
+	}, function(xhr, status){
+		testResults[id] = {status: 'fail', msg: status == 'timeout' ? '请求超时' : '服务器错误（HTTP '+xhr.status+'）', time: 0, at: Date.now()};
+		return $.Deferred().resolve();
+	}).always(function(){ saveTests(); paintTest(id); });
+}
+function testOne(id){
+	runTest(id).then(function(){
+		var r = testResults[id];
+		if (r.status == 'ok') layer.msg('账户可用，耗时 '+r.time+'ms', {icon: 1, time: 1500});
+		else layer.alert(htmlEscape(r.msg), {icon: 2, title: '账户ID '+id+' 测试失败'});
+	});
+}
+var testingAll = false;
+function testAll(){
+	if (testingAll) return;
+	var ii = layer.load(2);
+	$.ajax({type: 'POST', url: '/cert/account/data?deploy=1', data: {offset: 0, limit: 1000}, dataType: 'json'}).then(function(data){
+		layer.close(ii);
+		var ids = $.map(data.rows || [], function(r){ return r.id; });
+		if (!ids.length) { layer.msg('还没有自动部署账户'); return; }
+		testingAll = true;
+		var $btn = $('#testAllBtn').addClass('disabled');
+		var queue = ids.slice(), done = 0, ok = 0, fail = 0;
+		var summary = function(){
+			$('#testSummary').html((testingAll ? '正在测试 '+done+'/'+ids.length+'，' : '共 '+ids.length+' 个：')+'<b class="ok">可用 '+ok+'</b>，<b class="fail">不可用 '+fail+'</b>');
+		};
+		$.each(queue, function(_, id){ testResults[id] = {status: 'run'}; paintTest(id); });
+		summary();
+		var next = function(){
+			if (!queue.length) return $.Deferred().resolve();
+			var id = queue.shift();
+			return runTest(id).then(function(){
+				done++; if (testResults[id].status == 'ok') ok++; else fail++;
+				summary();
+				return next();
+			});
+		};
+		$.when(next(), next(), next()).then(function(){
+			testingAll = false; $btn.removeClass('disabled'); summary();
+			if (fail) layer.msg('测试完成，有 '+fail+' 个账户不可用', {icon: 2, time: 2500});
+			else layer.msg('测试完成，全部 '+ok+' 个账户可用', {icon: 1, time: 2000});
+		});
+	}, function(){ layer.close(ii); layer.msg('获取账户列表失败', {icon: 2}); });
+}
 function delItem(id){
 	layer.confirm('确定要删除此账户吗？', {
 		btn: ['确定','取消']

@@ -67,7 +67,8 @@
 					<div class="form-group">
 						<label class="col-sm-3 control-label">到期时间</label>
 						<div class="col-sm-9">
-							<input type="text" class="form-control" name="expiretime" placeholder="" value="">
+							<input type="text" class="form-control" name="expiretime" placeholder="留空则自动通过 WHOIS/RDAP 查询" value="">
+							<span class="help-block" style="margin-bottom:0">部分后缀（如 .al）注册局不提供公开查询，可在这里手动填写，到期提醒照常生效</span>
 						</div>
 					</div>
 					<div class="form-group">
@@ -247,8 +248,8 @@ $(document).ready(function(){
 					if(value == null) {
 						if (row.checkstatus == 0) {
 							html = '<font color="#bdbdbd">待查询</font>';
-						} else if (row.checkstatus == 2) {
-							html = '<font color="#bdbdbd">查询失败</font>';
+						} else if (row.checkstatus == 2 || row.checkstatus == 3) {
+							html = '<font color="#bdbdbd">未知</font>';
 						}
 					} else {
 						html = value.slice(0,10);
@@ -266,7 +267,7 @@ $(document).ready(function(){
 						if (row.checkstatus == 0) {
 							html = '<font color="#bdbdbd">待查询</font>';
 						} else if (row.checkstatus == 2) {
-							html = '<font color="#bdbdbd">查询失败</font>';
+							html = '<a href="javascript:editframe('+row.id+')" class="text-muted" title="未能自动查询到期时间，点击手动填写" data-toggle="tooltip" data-placement="bottom">无法查询 <i class="fa fa-pencil"></i></a>';
 						}
 					} else {
 						var now = new Date().getTime();
@@ -279,6 +280,9 @@ $(document).ready(function(){
 						} else {
 							html += '<b><span class="text-red" title="已到期" data-toggle="tooltip" data-placement="bottom">'+value.slice(0,10)+'</span></b>';
 						}
+					}
+					if (value != null && row.checkstatus == 3) {
+						html += ' <span class="label label-default" title="手动填写的到期时间" data-toggle="tooltip" data-placement="bottom" style="font-weight:500">手动</span>';
 					}
 					html += '&nbsp;<a href="javascript:updateDate('+row.id+')" title="刷新到期时间" class="text-green"><i class="fa fa-refresh"></i></a>';
 					return html;
@@ -724,11 +728,16 @@ function updateDate(id){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.msg('刷新成功', {icon: 1, time: 600});
+				layer.msg('刷新成功', {icon: 1, time: 1000});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2, title: '查询到期时间失败'});
+				searchRefresh();
 			}
+		},
+		error : function(){
+			layer.close(ii);
+			layer.msg('服务器错误', {icon: 2});
 		}
 	});
 }

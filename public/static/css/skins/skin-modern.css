@@ -30,11 +30,7 @@
   padding-left: 18px;
 }
 .skin-modern .main-header .logo:hover { color: var(--zn-text); }
-.skin-modern .main-header .logo .zn-logo-icon {
-  display: inline-block; width: 26px; height: 26px; line-height: 26px; text-align: center; border-radius: 7px; margin-right: 9px;
-  background: linear-gradient(180deg, #2b8cff, #0063d1); color: #fff; font-size: 13px; vertical-align: -1px;
-  box-shadow: 0 1px 2px rgba(0, 113, 227, .35);
-}
+
 .skin-modern.sidebar-mini.sidebar-collapse .main-header .logo { padding: 0; text-align: center; }
 .skin-modern.sidebar-mini.sidebar-collapse .main-header .logo > .logo-mini { margin: 0; }
 .skin-modern .main-header .navbar .nav > li > a,

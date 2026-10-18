@@ -18,8 +18,10 @@ class ExpireNoticeService
             [$regTime, $expireTime] = getDomainDate($domain);
             Db::name('domain')->where('id', $id)->update(['regtime' => $regTime, 'expiretime' => $expireTime, 'checktime' => date('Y-m-d H:i:s'), 'checkstatus' => 1]);
             return ['code' => 0, 'regTime' => $regTime, 'expireTime' => $expireTime, 'msg' => 'Success'];
-        } catch (Exception $e) {
-            Db::name('domain')->where('id', $id)->update(['checktime' => date('Y-m-d H:i:s'), 'checkstatus' => 2]);
+        } catch (\Throwable $e) {
+            // 手动填写过到期时间的域名（checkstatus=3）查询失败时保留手动状态
+            $manual = Db::name('domain')->where('id', $id)->value('checkstatus') == 3;
+            Db::name('domain')->where('id', $id)->update(['checktime' => date('Y-m-d H:i:s'), 'checkstatus' => $manual ? 3 : 2]);
             return ['code' => -1, 'msg' => $e->getMessage()];
         }
     }

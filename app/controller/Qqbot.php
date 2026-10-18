@@ -52,7 +52,7 @@ class Qqbot extends BaseController
                     try {
                         $bot->sendMarkdown(
                             $openid,
-                            "# 绑定成功\n\n您已成功绑定QQ机器人消息通知，聚合DNS管理系统通知将通过本机器人发送。",
+                            "# 绑定成功\n\n您已成功绑定QQ机器人消息通知，聚合CC-DNS通知将通过本机器人发送。",
                             (string) ($event['id'] ?? '')
                         );
                     } catch (\Throwable $e) {

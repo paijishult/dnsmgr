@@ -65,7 +65,7 @@ class AuditHelper
         'domain/weight' => ['status' => '开关解析权重', 'update' => '修改解析权重', '*' => '设置解析权重'],
         'domain/weight_data' => '查看解析权重',
         'domain/alias' => ['list' => '查看域名别名', 'add' => '添加域名别名', 'delete' => '删除域名别名', '*' => '域名别名'],
-        'cert/account_op' => ['add' => '添加证书/部署账户', 'edit' => '修改证书/部署账户', 'del' => '删除证书/部署账户', '*' => '证书/部署账户管理'],
+        'cert/account_op' => ['add' => '添加证书/部署账户', 'edit' => '修改证书/部署账户', 'del' => '删除证书/部署账户', 'check' => '测试证书/部署账户', 'test' => '测试证书/部署账户配置', '*' => '证书/部署账户管理'],
         'cert/account_data' => '查看证书/部署账户列表',
         'cert/order_data' => '查看证书订单',
         'cert/order_info' => '下载证书和私钥',
@@ -136,7 +136,7 @@ class AuditHelper
         'cloudflare/tunnels_public_hostnames_data', 'cloudflare/tunnels_cidr_data', 'cloudflare/tunnels_hostname_routes_data',
         'apikey/data', 'audit/data', 'system/proxytest', 'domain/dnscheck',
     ];
-    private static $readSubActions = ['get', 'list', 'show_log', 'check', 'generate'];
+    private static $readSubActions = ['get', 'list', 'show_log', 'check', 'test', 'generate'];
 
     /**
      * 敏感的读取操作（总是记录）

@@ -175,7 +175,7 @@
         </div>
     </div>
     <div class="form-group">
-        <div class="col-sm-offset-3 col-sm-6"><button type="button" class="btn btn-primary" @click="submit">提交</button></div>
+        <div class="col-sm-offset-3 col-sm-6"><button type="button" class="btn btn-primary" @click="submit">提交</button> <button type="button" class="btn btn-default" @click="testConfig" v-if="set.deploy=='1'" title="用当前填写的内容测试能否连接，不会保存"><i class="fa fa-plug"></i> 测试连接</button></div>
     </div>
   </form>
 </div>
@@ -282,6 +282,33 @@ new Vue({
         selectType(type) {
             this.set.type = type;
             this.selectedType = true;
+        },
+        testConfig(){
+            Object.keys(this.config).forEach((key) => {
+                if(this.config[key] && typeof this.config[key] == 'string'){
+                    this.config[key] = this.trim(this.config[key]);
+                }
+            })
+            let loading = layer.msg('正在测试连接…', {icon: 16, shade: 0.1, time: 0});
+            $.ajax({
+                type: "POST",
+                url: "/cert/account/test",
+                data: {deploy: 1, type: this.set.type, config: JSON.stringify(this.config)},
+                dataType: 'json',
+                timeout: 130000,
+                success: function(data) {
+                    layer.close(loading);
+                    if(data.code == 0){
+                        layer.msg('连接正常，账户可用（'+data.time+'ms）', {icon: 1, time: 2000});
+                    }else{
+                        layer.alert($("<div>").text(data.msg).html(), {icon: 2, title: "测试失败"});
+                    }
+                },
+                error: function(xhr, status){
+                    layer.close(loading);
+                    layer.msg(status == 'timeout' ? '测试超时' : '服务器错误', {icon: 2});
+                }
+            });
         },
         submit(){
             var that=this;

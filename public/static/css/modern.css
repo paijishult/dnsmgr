@@ -1,5 +1,5 @@
 /*
- * 聚合DNS管理系统 - 界面主题（Apple 风格）
+ * 聚合CC-DNS - 界面主题（Apple 风格）
  * 在 Bootstrap 3 / AdminLTE 之上统一字体、颜色、圆角、阴影与动效，不改变原有页面结构。
  * 动画只使用 transform / opacity，并遵循系统“减少动态效果”设置。
  */
@@ -303,6 +303,36 @@ td .label, td .badge { font-weight: 600; }
 .layui-layer-msg .layui-layer-content { color: #fff !important; }
 .layui-layer-hui { background: rgba(29, 29, 31, .86) !important; }
 .layui-layer-loading { background: transparent !important; box-shadow: none !important; }
+
+/* 提示与对话框图标：替换 layer 自带的位图图标（原图带白底且与文字重叠） */
+.layui-layer-content .layui-layer-ico { background-repeat: no-repeat !important; background-position: center !important; background-size: 100% 100% !important; }
+.layui-layer-content .layui-layer-ico0 { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%23ff9500'/%3E%3Cpath d='M12 6.8v6.4' stroke-width='2.6' stroke='%23fff' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='17.2' r='1.5' fill='%23fff'/%3E%3C/svg%3E") !important; }
+.layui-layer-content .layui-layer-ico1, .layui-layer-content .layui-layer-ico6 { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%2334c759'/%3E%3Cpath d='M7.2 12.4l3.2 3.2 6.4-6.6' stroke-width='2.4' stroke='%23fff' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; }
+.layui-layer-content .layui-layer-ico2, .layui-layer-content .layui-layer-ico5 { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%23ff3b30'/%3E%3Cpath d='M8.6 8.6l6.8 6.8M15.4 8.6l-6.8 6.8' stroke-width='2.4' stroke='%23fff' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; }
+.layui-layer-content .layui-layer-ico3 { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%230071e3'/%3E%3Cpath d='M9.2 9.5a2.9 2.9 0 1 1 4.1 2.6c-.85.42-1.3.95-1.3 1.8v.4' stroke-width='2.3' stroke='%23fff' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='17.4' r='1.4' fill='%23fff'/%3E%3C/svg%3E") !important; }
+.layui-layer-content .layui-layer-ico4 { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='12' fill='%238e8e93'/%3E%3Crect x='7.6' y='11' width='8.8' height='6.8' rx='1.6' fill='%23fff'/%3E%3Cpath d='M9.6 11V9.2a2.4 2.4 0 0 1 4.8 0V11' stroke-width='2' stroke='%23fff' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important; }
+
+/* 轻提示（layer.msg）：深色毛玻璃胶囊，图标与文字垂直居中 */
+.layui-layer.layui-layer-msg { min-width: 0 !important; max-width: 86vw; border-radius: 14px !important; background: rgba(28, 28, 30, .9) !important; box-shadow: 0 12px 32px rgba(0, 0, 0, .2), 0 0 0 .5px rgba(255, 255, 255, .1) inset !important; }
+@supports ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .layui-layer.layui-layer-msg { background: rgba(28, 28, 30, .78) !important; -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); }
+}
+.layui-layer-msg .layui-layer-content { padding: 12px 22px !important; font-size: 14px !important; line-height: 22px !important; font-weight: 500; color: #fff !important; text-align: center; letter-spacing: .01em; white-space: normal; }
+.layui-layer-msg .layui-layer-content.layui-layer-padding { padding: 12px 22px 12px 46px !important; text-align: left; }
+.layui-layer-msg .layui-layer-content .layui-layer-ico { width: 20px !important; height: 20px !important; left: 16px !important; top: 50% !important; margin-top: -10px; }
+
+.layui-layer-msg .layui-layer-content .layui-layer-ico16 { background: none !important; box-sizing: border-box; border: 2px solid rgba(255, 255, 255, .28); border-top-color: #fff; border-radius: 50%; animation: zn-spin .75s linear infinite; }
+@keyframes zn-spin { to { transform: rotate(360deg); } }
+
+/* 对话框（layer.alert / confirm）带图标时 */
+.layui-layer-dialog:not(.layui-layer-msg) { max-width: min(520px, calc(100vw - 32px)); }
+.layui-layer-dialog:not(.layui-layer-msg) .layui-layer-content { word-break: break-word !important; }
+.layui-layer-dialog:not(.layui-layer-msg) .layui-layer-content.layui-layer-padding { padding: 22px 24px 20px 60px !important; }
+.layui-layer-dialog:not(.layui-layer-msg) .layui-layer-content .layui-layer-ico { width: 24px !important; height: 24px !important; left: 24px !important; top: 22px !important; }
+
+/* 品牌 Logo */
+.main-header .logo .zn-brand-logo { display: inline-block; width: 28px; height: 28px; margin: -3px 9px 0 0; padding: 2px; border-radius: 8px; background: #fff; vertical-align: middle; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+.main-header .logo .logo-mini .zn-brand-logo { margin: -3px 0 0; }
 
 /* 选项卡 */
 .nav-tabs { border-bottom-color: var(--zn-line-soft); }

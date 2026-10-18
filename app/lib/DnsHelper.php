@@ -735,7 +735,7 @@ class DnsHelper
         'dnsmgr' => [
             'name' => '同系统对接',
             'icon' => 'logo.png',
-            'note' => '对接其他聚合DNS管理系统站点',
+            'note' => '对接其他聚合CC-DNS / 彩虹聚合DNS站点',
             'config' => [
                 'base_url' => [
                     'name' => '站点地址',
@@ -776,7 +776,7 @@ class DnsHelper
         ],
         'goedge' => [
             'name' => 'GoEdge智能DNS',
-            'icon' => 'logo.png',
+            'icon' => 'server.png',
             'note' => '需要填写GoEdge HTTP API节点地址，不是管理后台地址或gRPC地址',
             'config' => [
                 'base_url' => [

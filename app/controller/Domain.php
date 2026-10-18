@@ -343,14 +343,22 @@ class Domain extends BaseController
             $expiretime = input('post.expiretime', null, 'trim');
             $remark = input('post.remark', null, 'trim');
             if (empty($remark)) $remark = null;
-            Db::name('domain')->where('id', $id)->update([
+            if ($expiretime && strtotime($expiretime) === false) return json(['code' => -1, 'msg' => '到期时间格式不正确']);
+            $expiretime = $expiretime ? date('Y-m-d H:i:s', strtotime($expiretime)) : null;
+            $update = [
                 'is_hide' => $is_hide,
                 'is_sso' => $is_sso,
                 'is_notice' => $is_notice,
                 'cid' => $cid,
-                'expiretime' => $expiretime ? $expiretime : null,
+                'expiretime' => $expiretime,
                 'remark' => $remark,
-            ]);
+            ];
+            // 手动修改了到期时间：标记为手动（WHOIS/RDAP查不到时不会被覆盖为“查询失败”）；清空则重新自动查询
+            $oldExpire = $row['expiretime'] ? date('Y-m-d H:i:s', strtotime($row['expiretime'])) : null;
+            if ($expiretime !== $oldExpire) {
+                $update['checkstatus'] = $expiretime ? 3 : 0;
+            }
+            Db::name('domain')->where('id', $id)->update($update);
             return json(['code' => 0, 'msg' => '修改域名配置成功！']);
         } elseif ($act == 'del') {
             if (!checkPermission(2)) return $this->alert('error', '无权限');

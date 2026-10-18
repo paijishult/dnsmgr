@@ -614,23 +614,180 @@ function convertDomainToUtf8($domain) {
     }
 }
 
+/**
+ * 查询域名注册时间和到期时间
+ * 依次尝试：WHOIS（内置服务器表）→ RDAP（IANA 引导表）→ WHOIS（IANA 登记的服务器）
+ * 注册局完全不提供公开查询的后缀（如 .al）会给出明确提示，可在域名设置里手动填写到期时间
+ * @return array [注册时间|null, 到期时间]
+ */
 function getDomainDate($domain)
 {
+    $domain = strtolower(trim(convertDomainToAscii(trim($domain)), " .\t\r\n"));
+    $tld = substr($domain, strrpos($domain, '.') + 1);
+    $errors = [];
+
     try {
         $whois = \Iodev\Whois\Factory::get()->createWhois();
         $info = $whois->loadDomainInfo($domain);
-        if ($info) {
-            if ($info->expirationDate > 0) {
-                return [$info->creationDate > 0 ? date('Y-m-d H:i:s', $info->creationDate) : null, date('Y-m-d H:i:s', $info->expirationDate)];
-            } else {
-                throw new Exception('域名到期时间未知');
-            }
-        } else {
-            throw new Exception('域名信息未找到');
+        if ($info && $info->expirationDate > 0) {
+            return [$info->creationDate > 0 ? date('Y-m-d H:i:s', $info->creationDate) : null, date('Y-m-d H:i:s', $info->expirationDate)];
         }
-    } catch (Exception $e) {
-        throw new Exception('查询域名whois失败: ' . $e->getMessage());
+        $errors[] = 'WHOIS: ' . ($info ? '未返回到期时间' : '域名信息未找到');
+    } catch (\Throwable $e) {
+        $errors[] = 'WHOIS: ' . $e->getMessage();
     }
+
+    $rdapServers = [];
+    $rdapKnown = false;
+    try {
+        $rdapServers = rdapServersForTld($tld);
+        $rdapKnown = true;
+        if (!empty($rdapServers)) {
+            $res = getDomainDateByRdap($domain, $rdapServers);
+            if ($res) return $res;
+            $errors[] = 'RDAP: 未返回到期时间';
+        }
+    } catch (\Throwable $e) {
+        $errors[] = 'RDAP: ' . $e->getMessage();
+    }
+
+    $whoisServer = null;
+    try {
+        $whoisServer = whoisServerForTld($tld);
+        if ($whoisServer) {
+            $text = whoisRawQuery($whoisServer, $domain);
+            $res = parseWhoisDate($text);
+            if ($res) return $res;
+            $errors[] = 'WHOIS(' . $whoisServer . '): 未解析到到期时间';
+        }
+    } catch (\Throwable $e) {
+        $errors[] = 'WHOIS(' . ($whoisServer ?: 'IANA') . '): ' . $e->getMessage();
+    }
+
+    if ($rdapKnown && empty($rdapServers) && $whoisServer === '') {
+        throw new Exception('.' . $tld . ' 的注册局没有提供公开的 WHOIS/RDAP 查询，无法自动获取到期时间，请在域名“修改”里手动填写到期时间');
+    }
+    throw new Exception('查询域名到期时间失败（' . implode('；', array_unique($errors)) . '）');
+}
+
+/**
+ * 从 IANA RDAP 引导表获取后缀对应的 RDAP 服务地址（缓存7天）
+ */
+function rdapServersForTld($tld)
+{
+    $map = cache('rdap_bootstrap_dns');
+    if (!is_array($map)) {
+        $res = http_request('https://data.iana.org/rdap/dns.json', null, null, null, ['Accept' => 'application/json'], false, 'GET', 15);
+        $json = $res['code'] == 200 ? json_decode($res['body'], true) : null;
+        if (!is_array($json) || empty($json['services'])) {
+            throw new Exception('获取RDAP引导表失败');
+        }
+        $map = [];
+        foreach ($json['services'] as $service) {
+            foreach ($service[0] as $t) {
+                $map[strtolower($t)] = $service[1];
+            }
+        }
+        cache('rdap_bootstrap_dns', $map, 86400 * 7);
+    }
+    return $map[strtolower($tld)] ?? [];
+}
+
+function getDomainDateByRdap($domain, array $servers)
+{
+    $lastError = null;
+    foreach ($servers as $base) {
+        $url = rtrim($base, '/') . '/domain/' . $domain;
+        try {
+            for ($i = 0; $i < 3; $i++) {
+                $res = http_request($url, null, null, null, ['Accept' => 'application/rdap+json, application/json'], false, 'GET', 15);
+                if ($res['code'] >= 300 && $res['code'] < 400 && $res['redirect_url']) {
+                    $url = $res['redirect_url'];
+                    continue;
+                }
+                break;
+            }
+            if ($res['code'] == 404) throw new Exception('域名不存在');
+            if ($res['code'] != 200) throw new Exception('HTTP ' . $res['code']);
+            $json = json_decode($res['body'], true);
+            if (!is_array($json)) throw new Exception('返回格式错误');
+            $reg = $exp = null;
+            foreach ($json['events'] ?? [] as $event) {
+                $action = strtolower($event['eventAction'] ?? '');
+                $date = isset($event['eventDate']) ? strtotime($event['eventDate']) : false;
+                if (!$date) continue;
+                if ($action == 'expiration') $exp = $date;
+                elseif ($action == 'registration') $reg = $date;
+            }
+            if ($exp) {
+                return [$reg ? date('Y-m-d H:i:s', $reg) : null, date('Y-m-d H:i:s', $exp)];
+            }
+            return null;
+        } catch (\Throwable $e) {
+            $lastError = $e;
+        }
+    }
+    if ($lastError) throw $lastError;
+    return null;
+}
+
+/**
+ * 通过 whois.iana.org 获取后缀登记的 WHOIS 服务器（缓存7天）；返回空字符串表示 IANA 确认该后缀没有 WHOIS 服务器
+ */
+function whoisServerForTld($tld)
+{
+    $key = 'whois_server_' . strtolower($tld);
+    $server = cache($key);
+    if ($server === null || $server === false) {
+        $text = whoisRawQuery('whois.iana.org', $tld);
+        if (!preg_match('/^status:\s*ACTIVE/mi', $text) && !preg_match('/^domain:\s*\S+/mi', $text)) {
+            throw new Exception('IANA未返回该后缀信息');
+        }
+        $server = preg_match('/^whois:[ \t]*(\S+)/mi', $text, $m) ? strtolower($m[1]) : '';
+        cache($key, $server, 86400 * 7);
+    }
+    return $server;
+}
+
+function whoisRawQuery($server, $query, $timeout = 10)
+{
+    $fp = @fsockopen($server, 43, $errno, $errstr, $timeout);
+    if (!$fp) throw new Exception('连接' . $server . '失败: ' . $errstr);
+    stream_set_timeout($fp, $timeout);
+    fwrite($fp, $query . "\r\n");
+    $text = '';
+    while (!feof($fp)) {
+        $buf = fread($fp, 8192);
+        if ($buf === false || $buf === '') {
+            $meta = stream_get_meta_data($fp);
+            if ($meta['timed_out']) break;
+            if ($buf === false) break;
+        }
+        $text .= $buf;
+        if (strlen($text) > 1048576) break;
+    }
+    fclose($fp);
+    if (trim($text) === '') throw new Exception($server . '无返回内容');
+    return $text;
+}
+
+function parseWhoisDate($text)
+{
+    $find = function (array $labels) use ($text) {
+        foreach ($labels as $label) {
+            if (preg_match('/^[ \t]*' . $label . '[ \t]*[:\]][ \t]*(.+)$/mi', $text, $m)) {
+                $v = trim(preg_replace('/\s*\(.*\)\s*$/', '', trim($m[1])));
+                $v = preg_replace('/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/', '$3-$2-$1', $v);
+                $t = strtotime($v);
+                if ($t && $t > 0) return $t;
+            }
+        }
+        return null;
+    };
+    $exp = $find(['Registry Expiry Date', 'Registrar Registration Expiration Date', 'Expiration Date', 'Expiry Date', 'Expiration Time', 'Expire Date', 'Expires On', 'Expires', 'Expiry', 'paid-till', 'Valid Until', 'renewal date', 'Renewal Date', 'expire']);
+    if (!$exp) return null;
+    $reg = $find(['Creation Date', 'Registration Time', 'Registered On', 'Registered', 'Created On', 'created', 'Domain Registration Date', 'registration date']);
+    return [$reg ? date('Y-m-d H:i:s', $reg) : null, date('Y-m-d H:i:s', $exp)];
 }
 
 function checkTableExists($table)

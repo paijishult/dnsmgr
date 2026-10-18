@@ -150,8 +150,37 @@ class Cert extends BaseController
             }
             Db::name('cert_account')->where('id', $id)->delete();
             return json(['code' => 0]);
+        } elseif ($action == 'check') {
+            // 一键测试已保存的自动部署账户是否可用（只做连通性/登录校验，不会部署任何证书）
+            if ($deploy != 1) return json(['code' => -1, 'msg' => '仅支持测试自动部署账户']);
+            $id = input('post.id/d');
+            $row = Db::name('cert_account')->where('id', $id)->where('deploy', 1)->find();
+            if (!$row) return json(['code' => -1, 'msg' => $title . '不存在']);
+            return json($this->testDeployModel(DeployHelper::getModel($id), $row['type']));
+        } elseif ($action == 'test') {
+            // 添加/编辑页面上，用当前填写但尚未保存的配置测试
+            if ($deploy != 1) return json(['code' => -1, 'msg' => '仅支持测试自动部署账户']);
+            $type = input('post.type');
+            $config = json_decode(input('post.config', '', 'trim'), true);
+            if (empty($type) || !isset(DeployHelper::$deploy_config[$type])) return json(['code' => -1, 'msg' => '部署类型不存在']);
+            if (!is_array($config)) return json(['code' => -1, 'msg' => '账户配置不能为空']);
+            return json($this->testDeployModel(DeployHelper::getModel2($type, $config), $type));
         }
         return json(['code' => -3]);
+    }
+
+    private function testDeployModel($mod, $type)
+    {
+        if (!$mod) return ['code' => -1, 'msg' => '自动部署模块' . $type . '不存在'];
+        @set_time_limit(120);
+        $start = microtime(true);
+        try {
+            $mod->check();
+            return ['code' => 0, 'msg' => '账户可用', 'time' => intval(round((microtime(true) - $start) * 1000))];
+        } catch (\Throwable $e) {
+            $msg = trim($e->getMessage());
+            return ['code' => -1, 'msg' => $msg !== '' ? $msg : '测试失败（未返回错误信息）', 'time' => intval(round((microtime(true) - $start) * 1000))];
+        }
     }
 
     public function account_form()

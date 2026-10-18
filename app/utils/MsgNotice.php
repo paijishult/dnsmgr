@@ -8,7 +8,7 @@ use app\lib\DeployHelper;
 
 class MsgNotice
 {
-    private static $sitename = '聚合DNS管理系统';
+    private static $sitename = '聚合CC-DNS';
 
     public static function send($action, $task, $result)
     {

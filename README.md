@@ -1,4 +1,6 @@
-# 彩虹聚合DNS管理系统
+# 聚合CC-DNS
+
+> 基于 [彩虹聚合DNS管理系统](https://github.com/netcccyun/dnsmgr) 二次开发。
 
 <div align="center">
 
