@@ -235,7 +235,7 @@ class ApiKeyHelper
     }
 
     public static $ipSources = [
-        'auto' => '自动（推荐）：直连时取连接IP；经本机/内网反向代理时取 X-Forwarded-For 最后一跳（没有则取 X-Real-IP）',
+        'auto' => '安全默认（推荐）：仅取连接IP；可信反代请明确选择请求头模式',
         'remote' => '仅取连接IP（REMOTE_ADDR），程序直接对外时最安全',
         'x-real-ip' => '取 X-Real-IP 请求头（前面有可信反向代理时使用）',
         'xff' => '取 X-Forwarded-For 最后一个IP（前面有一层可信反向代理时使用）',
@@ -244,7 +244,8 @@ class ApiKeyHelper
 
     /**
      * 获取API客户端真实IP
-     * 为防止伪造请求头绕过IP白名单，默认只在连接来自内网/本机（即经过反向代理）时才信任代理头。
+     * 私网/本机连接不等于可信代理。默认只取连接IP；头部模式须由管理员
+     * 显式配置，并确保源站只接受可信代理且代理覆盖相应头部。
      */
     public static function clientIp()
     {
@@ -263,9 +264,6 @@ class ApiKeyHelper
             case 'cf':
                 return $cfIp ?: $remote;
             default:
-                if ($remote && !filter_var($remote, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                    return $xffIp ?: ($realIp ?: $remote);
-                }
                 return $remote;
         }
     }

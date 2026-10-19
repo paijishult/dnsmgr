@@ -36,7 +36,7 @@ namespace {
     }
     $directory=sys_get_temp_dir().'/dnsmgr-api-tests-'.bin2hex(random_bytes(6)).'/';
     function app(){return new class {public function getRuntimePath(){return $GLOBALS['directory'];}};}
-    function config_get($key,$default=null){return ['sys_key'=>'isolated-fixture-key','api_ip_source'=>'remote'][$key]??$default;}
+    function config_get($key,$default=null){return ($GLOBALS['api_config']??['sys_key'=>'isolated-fixture-key','api_ip_source'=>'remote'])[$key]??$default;}
     function input($key,$default=null){$key=preg_replace('~/[a-z]+$~','',$key);return request()->post(substr($key,5),$default);}
     function request(){return $GLOBALS['api_request'];}function json($data){return new ApiResponse($data);}
     $_SERVER['REMOTE_ADDR']='192.0.2.20';$GLOBALS['api_request']=new ApiRequest();$checks=0;
@@ -63,5 +63,16 @@ namespace {
         $allowed=0;for($worker=0;$worker<8;$worker++)$allowed+=(int)file_get_contents($directory.'worker-'.$worker);
         acheck($allowed===17&&!AttemptLimiter::check('concurrent',17)['allowed'],'200 competing requests grant exactly17 permits');
     }else echo "Native limiter concurrency requires pcntl (covered by Linux CI)\n";
+    $GLOBALS['api_config']=['sys_key'=>'isolated-fixture-key','api_ip_source'=>'auto'];
+    $_SERVER['HTTP_X_FORWARDED_FOR']='198.51.100.10, 203.0.113.99';
+    $_SERVER['HTTP_X_REAL_IP']='203.0.113.98';$_SERVER['HTTP_CF_CONNECTING_IP']='203.0.113.97';
+    foreach(['10.1.2.3','127.0.0.1','192.168.65.1','2001:db8::1','192.0.2.20'] as $remote){
+        $_SERVER['REMOTE_ADDR']=$remote;
+        acheck(ApiKeyHelper::clientIp()===$remote,'Safe automatic mode never treats arbitrary private or loopback clients as a trusted proxy');
+    }
+    foreach(['xff'=>'203.0.113.99','x-real-ip'=>'203.0.113.98','cf'=>'203.0.113.97'] as $source=>$expected){
+        $GLOBALS['api_config']['api_ip_source']=$source;
+        acheck(ApiKeyHelper::clientIp()===$expected,'Explicit administrator-selected trusted proxy mode remains available');
+    }
     echo 'API security: '.$checks." checks passed\n";
 }
