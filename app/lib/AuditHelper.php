@@ -35,7 +35,8 @@ class AuditHelper
         'user/user_op' => ['get' => '查看用户', 'add' => '添加用户', 'edit' => '修改用户', 'set' => '启用/封禁用户', 'del' => '删除用户', '*' => '用户管理'],
         'user/log_data' => '查看操作日志',
         'user/user_data' => '查看用户列表',
-        'domain/account_op' => ['add' => '添加DNS账户', 'edit' => '修改DNS账户', 'del' => '删除DNS账户', '*' => 'DNS账户管理'],
+        'domain/account_op' => ['add' => '添加DNS账户', 'edit' => '修改DNS账户', 'del' => '删除DNS账户', 'check' => '测试DNS账户', 'test' => '测试DNS账户配置', '*' => 'DNS账户管理'],
+        'domain/domain_check' => '测试域名有效性',
         'domain/account_data' => '查看DNS账户列表',
         'domain/domain_op' => ['get' => '查看域名', 'add' => '添加域名', 'edit' => '修改域名设置', 'del' => '删除域名', 'batchadd' => '批量添加域名', 'batchedit' => '批量修改域名备注', 'batchsetnotice' => '批量设置到期提醒', 'batchdel' => '批量删除域名', 'updateexpire' => '刷新域名到期时间', '*' => '域名管理'],
         'domain/domain_data' => '查看域名列表',
@@ -129,7 +130,7 @@ class AuditHelper
     private static $readActions = [
         'index/index', 'user/log_data', 'domain/account_data', 'domain/domain_data', 'domain/domain_info', 'domain/domain_list',
         'domain/update_date', 'domain/category_data', 'domain/category_list', 'domain/record_data', 'domain/record_list',
-        'domain/record_check', 'domain/record_log', 'domain/record_groups', 'domain/quickinfo', 'domain/weight_data',
+        'domain/record_check', 'domain/domain_check', 'domain/record_log', 'domain/record_groups', 'domain/quickinfo', 'domain/weight_data',
         'cert/account_data', 'cert/order_data', 'cert/deploy_data', 'cert/cname_data', 'dmonitor/task_data', 'dmonitor/tasklog_data',
         'schedule/stask_data', 'optimizeip/opiplist_data', 'optimizeip/queryapi', 'cloudflare/hostnames_data', 'cloudflare/hostnames_txt_targets',
         'cloudflare/fallback_get', 'cloudflare/dcv_delegation_uuid', 'cloudflare/get_domain_default_line', 'cloudflare/tunnels_data',

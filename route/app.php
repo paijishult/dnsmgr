@@ -84,6 +84,7 @@ Route::group(function () {
 
     Route::any('/domain/expirenotice', 'domain/expire_notice');
     Route::post('/domain/updatedate', 'domain/update_date');
+    Route::post('/domain/check', 'domain/domain_check');
     Route::post('/domain/data', 'domain/domain_data');
     Route::post('/domain/op', 'domain/domain_op');
     Route::post('/domain/list', 'domain/domain_list');

@@ -151,6 +151,24 @@ class Domain extends BaseController
                 Db::rollback();
                 return json(['code' => -1, 'msg' => 'DNS模块(' . $type . ')不存在']);
             }
+        } elseif ($action == 'check') {
+            // 测试已保存的域名账户是否可用（只调用查询接口）
+            $id = input('post.id/d');
+            $row = Db::name('account')->where('id', $id)->find();
+            if (!$row) return json(['code' => -1, 'msg' => '域名账户不存在']);
+            $result = $this->testDnsModel(DnsHelper::getModel($id), $row['type']);
+            if ($result['code'] == 0) {
+                $added = Db::name('domain')->where('aid', $id)->count();
+                $result['details'][] = ['level' => 'ok', 'text' => '本系统中已添加该账户下的 ' . $added . ' 个域名'];
+            }
+            return json($result);
+        } elseif ($action == 'test') {
+            // 添加/编辑页面上，用当前填写但尚未保存的配置测试
+            $type = input('post.type');
+            $config = input('post.config', '', 'trim');
+            if (empty($type) || !isset(DnsHelper::$dns_config[$type])) return json(['code' => -1, 'msg' => 'DNS模块不存在']);
+            if (!is_array(json_decode($config, true))) return json(['code' => -1, 'msg' => '账户配置不能为空']);
+            return json($this->testDnsModel(DnsHelper::getModel2(['type' => $type, 'config' => $config, 'name' => null, 'thirdid' => null]), $type));
         } elseif ($action == 'del') {
             $id = input('post.id/d');
             $dcount = DB::name('domain')->where('aid', $id)->count();
@@ -1489,6 +1507,148 @@ class Domain extends BaseController
             return json(['code' => 0, 'msg' => 'succ']);
         }
         return View::fetch();
+    }
+
+    private function testDnsModel($dns, $type)
+    {
+        if (!$dns) return ['code' => -1, 'msg' => 'DNS模块(' . $type . ')不存在'];
+        @set_time_limit(120);
+        $start = microtime(true);
+        $ms = function () use ($start) {
+            return intval(round((microtime(true) - $start) * 1000));
+        };
+        try {
+            if (!$dns->check()) {
+                $err = trim((string)$dns->getError());
+                return ['code' => -1, 'msg' => $err !== '' ? $err : '验证失败（未返回错误信息）', 'time' => $ms()];
+            }
+        } catch (\Throwable $e) {
+            return ['code' => -1, 'msg' => $e->getMessage(), 'time' => $ms()];
+        }
+        $time = $ms();
+        $details = [['level' => 'ok', 'text' => '接口认证通过，耗时 ' . $time . 'ms']];
+        try {
+            $list = $dns->getDomainList(null, 1, 1);
+            if (is_array($list) && isset($list['total'])) {
+                $details[] = ['level' => 'ok', 'text' => '平台账户中共有 ' . intval($list['total']) . ' 个域名'];
+            }
+        } catch (\Throwable $e) {
+        }
+        return ['code' => 0, 'msg' => '账户可用', 'time' => $time, 'details' => $details];
+    }
+
+    /**
+     * 各DNS服务商的NS服务器特征（只列出确定的，未列出的平台只展示NS不做比对）
+     */
+    private static $nsPatterns = [
+        'aliyun' => ['/(\.|^)(alidns\.com|hichina\.com)$/i', '阿里云'],
+        'dnspod' => ['/(\.|^)(dnspod\.(net|com)|dnsv\d\.com)$/i', '腾讯云DNSPod'],
+        'huawei' => ['/(\.|^)huaweicloud-dns\.(com|cn|net|org)$/i', '华为云'],
+        'west' => ['/(\.|^)myhostadmin\.net$/i', '西部数码'],
+        'cloudflare' => ['/\.ns\.cloudflare\.com$/i', 'Cloudflare'],
+        'aws' => ['/(\.|^)awsdns-\d+\.(com|net|org|co\.uk)$/i', 'AWS Route 53'],
+        'namesilo' => ['/(\.|^)dnsowl\.com$/i', 'NameSilo'],
+        'henet' => ['/(\.|^)he\.net$/i', 'HE DNS'],
+        'dnsla' => ['/(\.|^)dns\.la$/i', 'DNSLA'],
+        'dynv6' => ['/(\.|^)dynv6\.com$/i', 'dynv6'],
+    ];
+
+    /**
+     * 测试域名是否有效：DNS账户能否管理该域名、NS是否指向当前平台、是否已到期
+     */
+    public function domain_check()
+    {
+        $id = input('post.id/d');
+        $drow = Db::name('domain')->where('id', $id)->find();
+        if (!$drow) return json(['code' => -1, 'msg' => '域名不存在']);
+        if (!checkPermission(0, $drow['name'])) return json(['code' => -1, 'msg' => '无权限']);
+        $account = Db::name('account')->where('id', $drow['aid'])->find();
+        @set_time_limit(120);
+        $start = microtime(true);
+        $details = [];
+
+        // 1. 通过所属DNS账户读取解析记录
+        $apiOk = false;
+        $dns = $account ? DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']) : false;
+        if (!$dns) {
+            $details[] = ['level' => 'fail', 'text' => '所属域名账户不存在或DNS模块不可用'];
+        } else {
+            try {
+                $res = $dns->getDomainRecords(1, 1);
+                if ($res === false) {
+                    $details[] = ['level' => 'fail', 'text' => '无法通过域名账户读取解析记录：' . $dns->getError()];
+                } else {
+                    $apiOk = true;
+                    $total = is_array($res) && isset($res['total']) ? intval($res['total']) : null;
+                    $details[] = ['level' => 'ok', 'text' => '域名账户可正常管理该域名' . ($total !== null ? '（共 ' . $total . ' 条解析记录）' : '')];
+                    if ($total !== null && $total != $drow['recordcount']) {
+                        Db::name('domain')->where('id', $id)->update(['recordcount' => $total]);
+                    }
+                }
+            } catch (\Throwable $e) {
+                $details[] = ['level' => 'fail', 'text' => '无法通过域名账户读取解析记录：' . $e->getMessage()];
+            }
+        }
+
+        // 2. NS 是否指向当前DNS平台
+        $nsList = [];
+        $records = @dns_get_record($drow['name'], DNS_NS);
+        if (is_array($records)) {
+            foreach ($records as $r) {
+                if (!empty($r['target'])) $nsList[] = strtolower(rtrim($r['target'], '.'));
+            }
+        }
+        if (empty($nsList)) {
+            $doh = DnsQueryUtils::query_dns_doh($drow['name'], 'NS');
+            if (is_array($doh)) {
+                foreach ($doh as $v) $nsList[] = strtolower(rtrim($v, '.'));
+            }
+        }
+        $nsList = array_values(array_unique($nsList));
+        if (empty($nsList)) {
+            $details[] = ['level' => 'warn', 'text' => '未查询到NS记录，域名可能未生效、已过期或被注册局暂停解析'];
+        } else {
+            $nsText = implode('、', $nsList);
+            $type = $account['type'] ?? '';
+            if (isset(self::$nsPatterns[$type])) {
+                [$pattern, $pname] = self::$nsPatterns[$type];
+                $matched = array_filter($nsList, fn($ns) => preg_match($pattern, $ns));
+                if (count($matched) == count($nsList)) {
+                    $details[] = ['level' => 'ok', 'text' => 'NS已指向' . $pname . '：' . $nsText];
+                } elseif (!empty($matched)) {
+                    $details[] = ['level' => 'warn', 'text' => 'NS只有部分指向' . $pname . '：' . $nsText];
+                } else {
+                    $details[] = ['level' => 'warn', 'text' => 'NS未指向' . $pname . '，在本系统修改的解析不会生效。当前NS：' . $nsText];
+                }
+            } else {
+                $details[] = ['level' => 'ok', 'text' => '当前NS：' . $nsText];
+            }
+        }
+
+        // 3. 到期时间
+        if (!empty($drow['expiretime'])) {
+            $days = (int)floor((strtotime($drow['expiretime']) - time()) / 86400);
+            $date = substr($drow['expiretime'], 0, 10);
+            if ($days < 0) {
+                $details[] = ['level' => 'fail', 'text' => '域名已于 ' . $date . ' 到期'];
+            } elseif ($days <= 30) {
+                $details[] = ['level' => 'warn', 'text' => '域名将在 ' . $days . ' 天后（' . $date . '）到期'];
+            } else {
+                $details[] = ['level' => 'ok', 'text' => '到期时间 ' . $date . '（还有 ' . $days . ' 天）'];
+            }
+        }
+
+        $time = intval(round((microtime(true) - $start) * 1000));
+        $levels = array_column($details, 'level');
+        if (in_array('fail', $levels)) {
+            $first = $details[array_search('fail', $levels)]['text'];
+            return json(['code' => -1, 'msg' => $first, 'label' => $apiOk ? '异常' : '无法管理', 'time' => $time, 'details' => $details]);
+        }
+        if (in_array('warn', $levels)) {
+            $first = $details[array_search('warn', $levels)]['text'];
+            return json(['code' => 0, 'level' => 'warn', 'msg' => $first, 'label' => '有警告', 'time' => $time, 'details' => $details]);
+        }
+        return json(['code' => 0, 'level' => 'ok', 'msg' => '域名正常', 'label' => '正常', 'time' => $time, 'details' => $details]);
     }
 
     public function update_date()

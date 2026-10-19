@@ -151,12 +151,15 @@ class Cert extends BaseController
             Db::name('cert_account')->where('id', $id)->delete();
             return json(['code' => 0]);
         } elseif ($action == 'check') {
-            // 一键测试已保存的自动部署账户是否可用（只做连通性/登录校验，不会部署任何证书）
-            if ($deploy != 1) return json(['code' => -1, 'msg' => '仅支持测试自动部署账户']);
+            // 测试已保存的账户是否可用：部署账户只做连通性/登录校验，不会部署证书；
+            // SSL证书账户只查询账户状态（ACME 用 onlyReturnExisting），不会注册新账户或申请证书
             $id = input('post.id/d');
-            $row = Db::name('cert_account')->where('id', $id)->where('deploy', 1)->find();
+            $row = Db::name('cert_account')->where('id', $id)->where('deploy', $deploy)->find();
             if (!$row) return json(['code' => -1, 'msg' => $title . '不存在']);
-            return json($this->testDeployModel(DeployHelper::getModel($id), $row['type']));
+            if ($deploy == 1) {
+                return json($this->testDeployModel(DeployHelper::getModel($id), $row['type']));
+            }
+            return json($this->testCertModel(CertHelper::getModel($id), $row['type']));
         } elseif ($action == 'test') {
             // 添加/编辑页面上，用当前填写但尚未保存的配置测试
             if ($deploy != 1) return json(['code' => -1, 'msg' => '仅支持测试自动部署账户']);
@@ -167,6 +170,23 @@ class Cert extends BaseController
             return json($this->testDeployModel(DeployHelper::getModel2($type, $config), $type));
         }
         return json(['code' => -3]);
+    }
+
+    private function testCertModel($mod, $type)
+    {
+        if (!$mod) return ['code' => -1, 'msg' => 'SSL证书申请模块' . $type . '不存在'];
+        if (!method_exists($mod, 'check')) return ['code' => -1, 'msg' => '该类型暂不支持在线测试'];
+        $mod->setLogger(function ($txt) {
+        });
+        @set_time_limit(120);
+        $start = microtime(true);
+        try {
+            $mod->check();
+            return ['code' => 0, 'msg' => '账户可用', 'time' => intval(round((microtime(true) - $start) * 1000))];
+        } catch (\Throwable $e) {
+            $msg = trim($e->getMessage());
+            return ['code' => -1, 'msg' => $msg !== '' ? $msg : '测试失败（未返回错误信息）', 'time' => intval(round((microtime(true) - $start) * 1000))];
+        }
     }
 
     private function testDeployModel($mod, $type)

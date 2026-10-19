@@ -14,6 +14,8 @@
   <button type="submit" class="btn btn-primary"><i class="fa fa-search"></i> 搜索</button>
   <a href="javascript:searchClear()" class="btn btn-default" title="刷新域名账户列表"><i class="fa fa-refresh"></i> 刷新</a>
   <a href="/account/add" class="btn btn-success"><i class="fa fa-plus"></i> 添加</a>
+  <a href="javascript:tester.allFrom('/account/data')" class="btn btn-default" id="testAllBtn" title="逐个检测所有域名账户的接口密钥是否可用（只调用查询接口）"><i class="fa fa-plug"></i> 一键测试</a>
+  <span id="testSummary" class="zn-test-summary"></span>
 </form>
 
       <table id="listTable">
@@ -78,10 +80,17 @@ $(document).ready(function(){
 				sortable: true
 			},
 			{
+				field: 'teststatus',
+				title: '可用性',
+				formatter: function(value, row, index) {
+					return tester.cell(row.id);
+				}
+			},
+			{
 				field: 'action',
 				title: '操作',
 				formatter: function(value, row, index) {
-					var html = '<a href="/account/edit?id='+row.id+'" class="btn btn-info btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a> <a href="/domain?aid='+row.id+'" class="btn btn-default btn-xs">域名</a>';
+					var html = '<a href="/account/edit?id='+row.id+'" class="btn btn-info btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a> <a href="/domain?aid='+row.id+'" class="btn btn-default btn-xs">域名</a> <a href="javascript:tester.one('+row.id+')" class="btn btn-success btn-xs"><i class="fa fa-plug"></i> 测试</a>';
 					var rowType = String(row.type || '').toLowerCase();
 					if(userLevel == '2' && rowType === 'cloudflare'){
 						html += ' <a href="/cloudflare/tunnels/'+row.id+'" class="btn btn-default btn-xs">Tunnels</a>';
@@ -95,6 +104,8 @@ $(document).ready(function(){
 		},
 	})
 })
+var tester = znTester({key: 'dnsaccount', name: 'tester', url: '/account/check', button: '#testAllBtn', summary: '#testSummary',
+	data: function(id){ return {id: id}; }, title: function(id){ return '域名账户 ID '+id; }});
 function delItem(id) {
 	layer.confirm('确定要删除此域名账户吗？', {title: '提示', icon: 0}, function(){
 	  var ii = layer.load(2);

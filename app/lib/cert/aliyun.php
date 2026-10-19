@@ -25,6 +25,14 @@ class aliyun implements CertInterface
         $this->config = $config;
     }
 
+    /**
+     * 测试账户是否可用（只调用查询类接口）
+     */
+    public function check()
+    {
+        return $this->register();
+    }
+
     public function register()
     {
         if (empty($this->AccessKeyId) || empty($this->AccessKeySecret)) throw new Exception('必填参数不能为空');

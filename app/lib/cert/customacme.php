@@ -23,6 +23,16 @@ class customacme implements CertInterface
         }
     }
 
+    /**
+     * 测试账户是否可用：只查询已注册的ACME账户（onlyReturnExisting），不会注册新账户
+     */
+    public function check()
+    {
+        if (empty($this->ext['key']) || empty($this->ext['kid'])) throw new Exception('账户尚未注册（缺少账户密钥），请编辑该账户并保存一次');
+        $this->ac->getAccount();
+        return true;
+    }
+
     public function register()
     {
         if (empty($this->config['directory'])) throw new Exception('ACME地址不能为空');

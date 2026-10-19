@@ -14,6 +14,8 @@
   <button type="submit" class="btn btn-primary"><i class="fa fa-search"></i> 搜索</button>
   <a href="javascript:searchClear()" class="btn btn-default" title="刷新SSL证书账户列表"><i class="fa fa-refresh"></i> 刷新</a>
   <a href="/cert/account/add?deploy=0" class="btn btn-success"><i class="fa fa-plus"></i> 添加</a>
+  <a href="javascript:tester.allFrom('/cert/account/data?deploy=0')" class="btn btn-default" id="testAllBtn" title="逐个检测所有SSL证书账户是否可用（ACME 账户只查询账户状态，不会注册新账户或申请证书）"><i class="fa fa-plug"></i> 一键测试</a>
+  <span id="testSummary" class="zn-test-summary"></span>
 </form>
 
       <table id="listTable">
@@ -77,10 +79,17 @@ $(document).ready(function(){
 				sortable: true
 			},
 			{
+				field: 'teststatus',
+				title: '可用性',
+				formatter: function(value, row, index) {
+					return tester.cell(row.id);
+				}
+			},
+			{
 				field: 'action',
 				title: '操作',
 				formatter: function(value, row, index) {
-					var html = '<a href="/cert/account/edit?deploy=0&id='+row.id+'" class="btn btn-info btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a> <a href="/cert/certorder?aid='+row.id+'" class="btn btn-default btn-xs">订单</a>';
+					var html = '<a href="/cert/account/edit?deploy=0&id='+row.id+'" class="btn btn-info btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a> <a href="/cert/certorder?aid='+row.id+'" class="btn btn-default btn-xs">订单</a> <a href="javascript:tester.one('+row.id+')" class="btn btn-success btn-xs"><i class="fa fa-plug"></i> 测试</a>';
 					return html;
 				}
 			},
@@ -90,6 +99,8 @@ $(document).ready(function(){
 		},
 	})
 })
+var tester = znTester({key: 'certaccount', name: 'tester', url: '/cert/account/check', button: '#testAllBtn', summary: '#testSummary',
+	data: function(id){ return {id: id, deploy: 0}; }, title: function(id){ return 'SSL证书账户 ID '+id; }});
 function delItem(id){
 	layer.confirm('确定要删除此账户吗？', {
 		btn: ['确定','取消']

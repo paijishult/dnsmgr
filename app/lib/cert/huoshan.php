@@ -25,6 +25,14 @@ class huoshan implements CertInterface
         $this->client = new Volcengine($this->AccessKeyId, $this->SecretAccessKey, $this->endpoint, $this->service, $this->version, $this->region, $proxy);
     }
 
+    /**
+     * 测试账户是否可用（只调用查询类接口）
+     */
+    public function check()
+    {
+        return $this->register();
+    }
+
     public function register()
     {
         if (empty($this->AccessKeyId) || empty($this->SecretAccessKey)) throw new Exception('必填参数不能为空');

@@ -22,6 +22,14 @@ class ucloud implements CertInterface
         $this->config = $config;
     }
 
+    /**
+     * 测试账户是否可用（只调用查询类接口）
+     */
+    public function check()
+    {
+        return $this->register();
+    }
+
     public function register()
     {
         if (empty($this->PublicKey) || empty($this->PrivateKey) || empty($this->config['username']) || empty($this->config['phone']) || empty($this->config['email'])) throw new Exception('必填参数不能为空');

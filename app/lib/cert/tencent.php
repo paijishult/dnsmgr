@@ -27,6 +27,14 @@ class tencent implements CertInterface
         $this->email = $config['email'];
     }
 
+    /**
+     * 测试账户是否可用（只调用查询类接口）
+     */
+    public function check()
+    {
+        return $this->register();
+    }
+
     public function register()
     {
         if (empty($this->SecretId) || empty($this->SecretKey) || empty($this->email)) throw new Exception('必填参数不能为空');

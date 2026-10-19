@@ -161,9 +161,11 @@
   {if $user['level'] eq 2}<a href="javascript:addframe()" class="btn btn-success"><i class="fa fa-plus"></i> 添加</a>
   <div class="btn-group" role="group">
 	<button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">批量操作 <span class="caret"></span></button>
-	<ul class="dropdown-menu"><li><a href="/domain/add">添加域名</a></li><li><a href="javascript:operation('setcategory')">设置分类</a></li><li><a href="javascript:operation('editremark')">修改域名备注</a></li><li><a href="javascript:operation('opennotice')">开启到期提醒</a></li><li><a href="javascript:operation('closenotice')">关闭到期提醒</a></li><li><a href="javascript:operation('updateexpire')">刷新到期时间</a></li><li><a href="javascript:copySelected()">复制到剪贴板</a></li><li><a href="javascript:operation('delete')">删除域名</a></li><li role="separator" class="divider"></li><li><a href="javascript:operation('addrecord')">添加解析</a></li><li><a href="javascript:operation('editrecord')">修改解析</a></li><li><a href="/record/search">按记录值搜索</a></li><li><a href="/record/smartparse">智能添加解析</a></li></ul>
+	<ul class="dropdown-menu"><li><a href="/domain/add">添加域名</a></li><li><a href="javascript:operation('setcategory')">设置分类</a></li><li><a href="javascript:operation('editremark')">修改域名备注</a></li><li><a href="javascript:operation('opennotice')">开启到期提醒</a></li><li><a href="javascript:operation('closenotice')">关闭到期提醒</a></li><li><a href="javascript:operation('updateexpire')">刷新到期时间</a></li><li><a href="javascript:testDomains(true)">测试所选域名</a></li><li><a href="javascript:copySelected()">复制到剪贴板</a></li><li><a href="javascript:operation('delete')">删除域名</a></li><li role="separator" class="divider"></li><li><a href="javascript:operation('addrecord')">添加解析</a></li><li><a href="javascript:operation('editrecord')">修改解析</a></li><li><a href="/record/search">按记录值搜索</a></li><li><a href="/record/smartparse">智能添加解析</a></li></ul>
   </div>
   <a href="/domain/expirenotice" class="btn btn-default">到期提醒设置</a>{/if}
+  <a href="javascript:testDomains()" class="btn btn-default" id="testAllBtn" title="检测域名能否通过所属账户管理、NS 是否指向该平台、是否到期；勾选了域名时只测试所选"><i class="fa fa-stethoscope"></i> 一键测试</a>
+  <span id="testSummary" class="zn-test-summary"></span>
 </form>
 
       <table id="listTable">
@@ -289,6 +291,13 @@ $(document).ready(function(){
 				}
 			},
 			{
+				field: 'teststatus',
+				title: '有效性',
+				formatter: function(value, row, index) {
+					return tester.cell(row.id);
+				}
+			},
+			{
 				field: 'is_notice',
 				title: '到期提醒',
 				sortable: true,
@@ -332,7 +341,7 @@ $(document).ready(function(){
 				field: 'action',
 				title: '操作',
 				formatter: function(value, row, index) {
-					var html = '<a href="/record/'+row.id+'" class="btn btn-success btn-xs" onclick="loading()">解析</a>';
+					var html = '<a href="/record/'+row.id+'" class="btn btn-success btn-xs" onclick="loading()">解析</a> <a href="javascript:tester.one('+row.id+')" class="btn btn-default btn-xs" title="测试域名是否有效"><i class="fa fa-stethoscope"></i> 测试</a>';
 					if(userLevel == '2'){
 						html += ' <a href="javascript:editframe('+row.id+')" class="btn btn-info btn-xs">配置</a>';
 						html += ' <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a>';
@@ -717,6 +726,24 @@ function batch_set_category(ids) {
 			});
 		}
 	});
+}
+var tester = znTester({key: 'domain', name: 'tester', url: '/domain/check', button: '#testAllBtn', summary: '#testSummary',
+	data: function(id){ return {id: id}; },
+	title: function(id){
+		var row = $('#listTable').bootstrapTable('getRowByUniqueId', id) || $.grep($('#listTable').bootstrapTable('getData'), function(r){ return r.id == id; })[0];
+		return row ? htmlEscape(row.name) : '域名 ID '+id;
+	}});
+function testDomains(selectedOnly){
+	var rows = $('#listTable').bootstrapTable('getSelections');
+	if (rows.length > 0) {
+		tester.all($.map(rows, function(r){ return r.id; }));
+		return;
+	}
+	if (selectedOnly) { layer.msg('请先勾选要测试的域名'); return; }
+	var extra = {};
+	$.each($('#searchToolbar').serializeArray(), function(_, f){ if (f.value !== '') extra[f.name] = f.value; });
+	if (typeof window.$_GET['aid'] != 'undefined') extra.aid = window.$_GET['aid'];
+	tester.allFrom('/domain/data', extra);
 }
 function updateDate(id){
 	var ii = layer.load(2);
