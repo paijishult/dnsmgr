@@ -52,7 +52,7 @@ namespace {
     // Invalid domain restrictions must never silently turn into unrestricted keys.
     ccheck(\app\lib\ApiKeyHelper::normalizeDomains(' Example.COM,*.example.com;www.example.com. ' )===['example.com','www.example.com'],'domain restrictions normalized and deduplicated');
     ccheck(\app\lib\ApiKeyHelper::normalizeDomains('')===[],'explicit empty restriction stays unrestricted');
-    foreach([123,null,[[]],['<img src=x onerror=alert(1)>'],['example.com','bad/host'],['-bad.example.com']] as $invalid)rejects(fn()=>\app\lib\ApiKeyHelper::normalizeDomains($invalid));
+    foreach([123,null,[[]],['<img src=x onerror=alert(1)>'],['example.com','bad/host'],['-bad.example.com'],'.','...'] as $invalid)rejects(fn()=>\app\lib\ApiKeyHelper::normalizeDomains($invalid));
     ccheck(\app\lib\ApiKeyHelper::normalizeScopes(['record:read','domain:write'],false)===['record:read'],'normal key cannot gain admin scope');
     Db::$tables=['cert_account'=>[['id'=>1,'deploy'=>1,'type'=>'btpanel']], 'cert_order'=>[['id'=>10,'aid'=>0,'isauto'=>0]], 'cert_domain'=>[['id'=>1,'oid'=>10,'domain'=>'example.com']], 'cert_deploy'=>[['id'=>20,'aid'=>1,'oid'=>10,'active'=>1,'config'=>'{}']]];
     $controller=new \app\controller\Cert();$normalize=new ReflectionMethod($controller,'normalizeDeployConfig');

@@ -129,9 +129,10 @@ class ApiKeyHelper
         foreach ($domains as $domain) {
             if (!is_string($domain)) throw new \InvalidArgumentException('域名范围中包含无效值');
             $domain = strtolower(trim((string)$domain));
+            if ($domain === '') continue;
             $domain = rtrim($domain, '.');
             if (str_starts_with($domain, '*.')) $domain = substr($domain, 2);
-            if ($domain === '') continue;
+            if ($domain === '') throw new \InvalidArgumentException('域名范围中包含无效域名');
             $ascii = convertDomainToAscii($domain);
             if (!$ascii || !checkDomain($ascii)) throw new \InvalidArgumentException('域名范围中包含无效域名：' . $domain);
             \app\lib\RecordGuard::domainName($ascii);
