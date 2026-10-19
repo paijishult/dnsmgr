@@ -7,6 +7,10 @@ foreach ([JSON_UNESCAPED_SLASHES,0] as $flags) {
     $safe=SensitiveLog::filter($raw);archiveCheck(!str_contains($safe,'private-link')&&!str_contains($safe,'encoded-fixture-key')&&!str_contains($safe,'fixture-pass'),'Raw and JSON-escaped bearer URLs and key fields are masked');
 }
 archiveCheck(SensitiveLog::filter("-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----")==='[PRIVATE KEY]','PEM key bodies are masked');
+$sensitive=json_encode(['password'=>'fixture words with spaces and "quotes"','ClientSecret'=>'client secret with spaces','access_token'=>'bearer fixture token','pfx_pass'=>'pfx passphrase with spaces']);
+$filtered=SensitiveLog::filter($sensitive);
+archiveCheck(!str_contains($filtered,'spaces')&&!str_contains($filtered,'quotes')&&!str_contains($filtered,'bearer fixture'),'Quoted multiword secrets and JSON escapes are completely redacted');
+archiveCheck(!str_contains(SensitiveLog::filter('Authorization: Bearer fixture-header-credential'),'fixture-header-credential'),'Unquoted authorization headers are redacted');
 $directory=SecureFiles::temporaryDirectory();
 try {
     SecureFiles::write($directory.'/private.key','fixture',0600);SecureFiles::write($directory.'/private.key','replacement',0600);

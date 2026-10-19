@@ -30,6 +30,7 @@ class CertDnsService
                 if ($row['type'] === 'CNAME' && $records) throw new RuntimeException('验证CNAME与已有记录冲突，请人工核对；未删除已有记录');
                 $line = DnsHelper::$line_name[$domain['type']]['DEF'] ?? 'default';
                 $ttl = $domain['type'] === 'namesilo' ? 3600 : 600;
+                self::assertBinding($domain);
                 if ($domain['type'] === 'huawei' && $records) {
                     if (count($records) !== 1 || !is_array($records[0]['Value'])) throw new RuntimeException('验证记录集无法唯一定位');
                     $record = $records[0];
@@ -58,6 +59,7 @@ class CertDnsService
             $dns = new GuardedDns($model, $domain);
             try {
                 if ($lease['managed'] && Db::name('cert_dns_lease')->where('claim', $lease['claim'])->where('oid', '<>', $oid)->count() === 0) {
+                    self::assertBinding($domain);
                     $row = ['name' => $lease['rr'], 'type' => $lease['type'], 'value' => $lease['value']];
                     $records = array_values(array_filter(self::matching($dns->records(), $row), fn($r) => self::contains($r['Value'], $row['value'], $row['type'])));
                     if (count($records) > 1) throw new RuntimeException('验证记录不唯一，停止自动清理');
@@ -92,6 +94,14 @@ class CertDnsService
     private static function matching(array $records, array $row): array
     {
         return array_values(array_filter($records, fn($r) => strcasecmp($r['Name'], $row['name']) === 0 && ($r['Type'] ?? '') === $row['type']));
+    }
+
+    private static function assertBinding(array $domain): void
+    {
+        $fresh = Db::name('domain')->where('id', $domain['id'])->find();
+        foreach (['aid','name','thirdid'] as $field) {
+            if (!$fresh || (string)$fresh[$field] !== (string)$domain[$field]) throw new RuntimeException('验证域名已删除或重新绑定，停止DNS变更');
+        }
     }
 
     private static function contains($actual, string $expected, string $type): bool

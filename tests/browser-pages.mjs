@@ -47,6 +47,7 @@ try {
     let data={code:0,msg:'fixture',total:1,rows:[row],data:[]};
     if(p.startsWith('/record/snapshot/'))data={code:0,msg:'快照创建成功',snapshot_id:901};
     else if(p.startsWith('/record/history/data/'))data=req.postData()?.includes('snapshotid=')?{code:0,data:[row]}:{total:1,rows:[{id:901,label:'手动快照',record_count:1,addtime:'2026-10-20 10:00:00'}]};
+    else if(p==='/system/qqbotbind')data={code:0,data:{message:'绑定 '+ 'f'.repeat(24)}};
     else if(p==='/batch/details')data={code:0,task,results:[{index:0,success:true},{index:1,success:false,message:task.error}]};
     else if(p==='/batch/enqueue')data={code:0,msg:'已加入后台任务',id:1};
     else if(p.startsWith('/batch/task/'))data={code:0,msg:'设置成功'};
@@ -149,6 +150,8 @@ try {
     if(!requests.some(r=>r.url==='/cleancache'&&r.method==='POST'&&r.csrf))throw new Error('missing cache POST/token');
    });
    if(entry.name==='system/noticeset')await check('notification tests use CSRF POST',async()=>{
+    await page.evaluate(()=>startQqbotBinding());await page.locator('#qqbotBindingMessage').filter({hasText:'绑定 '+ 'f'.repeat(24)}).waitFor();
+    if(!requests.some(r=>r.url==='/system/qqbotbind'&&r.method==='POST'&&r.csrf))throw new Error('binding missing POST/token');
     for(const action of ['mailtest','tgbottest','webhooktest','customwebhooktest']) {
      const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/system/'+action);
      await page.evaluate(name=>window[name](),action);await response;
