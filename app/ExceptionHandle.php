@@ -54,7 +54,15 @@ class ExceptionHandle extends Handle
         if (str_starts_with(ltrim($request->pathinfo(), '/'), 'api/') && !($e instanceof HttpResponseException)) {
             $status = $e instanceof HttpException ? $e->getStatusCode() : 500;
             if ($e instanceof HttpException) {
-                $msg = $e->getMessage() ?: '请求错误';
+                $msg = match ($status) {
+                    400 => '请求参数不正确',
+                    401 => '请先完成身份验证',
+                    403 => '无权限',
+                    404 => '请求资源不存在',
+                    405 => '请求方法不支持',
+                    429 => '请求过于频繁，请稍后重试',
+                    default => $status >= 500 ? '服务器内部错误，请稍后重试' : '请求处理失败',
+                };
             } elseif ($e instanceof \think\db\exception\DbException || $e instanceof \PDOException) {
                 $msg = '服务器内部错误（数据库）';
             } elseif ($e instanceof \Error || $e instanceof \ErrorException || $e instanceof \think\exception\ErrorException) {
@@ -62,10 +70,10 @@ class ExceptionHandle extends Handle
                 $status = 400;
                 $msg = '请求参数缺失或格式不正确，请对照接口文档检查必填参数';
             } else {
-                $msg = str_replace([app()->getRootPath(), str_replace('/', '\\', app()->getRootPath())], '', $e->getMessage());
-                $msg = '服务器内部错误：' . mb_substr($msg, 0, 200);
+                $msg = '服务器内部错误，请稍后重试';
             }
-            return json(['code' => -1, 'msg' => $msg], $status);
+            $response = json(['code' => -1, 'msg' => $msg], $status);
+            return $e instanceof HttpException ? $response->header($e->getHeaders()) : $response;
         }
 
         // 其他错误交给系统处理
