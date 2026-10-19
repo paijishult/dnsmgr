@@ -27,7 +27,17 @@ try {
     if (!$blocked) throw new RuntimeException('Second live worker acquired the same resource');
     $a->release(); $b->acquire(); $b->release();
     $a->acquire(); $first->pdo = null; // Connection loss must release the session lock.
-    $b->acquire(); $b->release();
+    // TCP close is asynchronous at the server. Keep production acquisition
+    // nonblocking, but allow MySQL a bounded interval to observe the disconnect.
+    $disconnectedAt = microtime(true);
+    while (true) {
+        try { $b->acquire(); break; }
+        catch (RuntimeException $error) {
+            if ($error->getCode() !== 102 || microtime(true) - $disconnectedAt > 2) throw $error;
+            usleep(10000);
+        }
+    }
+    $b->release();
     // Deploy/order resources must remain independently locked on MySQL5.6,
     // where taking a second resource on one connection releases its first.
     $deployLock = new app\service\TaskLockService($second, $resource . ':deploy');
