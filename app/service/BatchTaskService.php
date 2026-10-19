@@ -59,19 +59,26 @@ class BatchTaskService
     {
         $identity = self::identity();
         if (!checkPermission(0, $domain['name']) || !api_has_scope('record:write')) throw new \RuntimeException('无域名修改权限');
-        if (Db::name('batch_task')->where('uid', $identity['uid'])->whereIn('status', [0, 1, 3])->count() >= 20) throw new \RuntimeException('待处理任务过多，请先完成或取消已有任务');
-        $actor = DnsChangeService::actor();
-        $plan = (new DnsChangeService())->consumePlan($domain, $token, $actor);
-        $encoded = json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-        if (strlen($encoded) > 2097152) throw new \RuntimeException('任务数据超过2MB安全上限');
-        $name = trim($name) ?: $domain['name'] . ' 解析变更';
+        $name = trim($name) ?: mb_substr($domain['name'] . ' 解析变更', 0, 120);
         if (mb_strlen($name) > 120) throw new \RuntimeException('任务名称不能超过120个字符');
-        return (int)Db::name('batch_task')->insertGetId([
-            'uid' => $identity['uid'], 'kid' => $identity['kid'], 'did' => $domain['id'], 'actor' => $actor, 'name' => $name,
-            'identity' => json_encode($identity, JSON_THROW_ON_ERROR), 'plan' => $encoded, 'results' => '[]', 'total' => count($plan['changes']),
-            'completed' => 0, 'status' => 0, 'cancel_requested' => 0, 'attempts' => 0, 'error' => null,
-            'addtime' => date('Y-m-d H:i:s'), 'updatetime' => date('Y-m-d H:i:s'), 'expiretime' => date('Y-m-d H:i:s', time() + 86400),
-        ]);
+        $connection = TaskLockService::connection();
+        $lock = new TaskLockService($connection, 'batch-enqueue:' . $identity['uid']);
+        try {
+            $lock->acquire();
+            // Count and insert on one primary connection under a per-user mutex.
+            // Concurrent requests/keys cannot spend the same last quota slot.
+            if ($connection->name('batch_task')->where('uid', $identity['uid'])->whereIn('status', [0, 1, 3])->count() >= 20) throw new \RuntimeException('待处理任务过多，请先完成或取消已有任务');
+            $actor = DnsChangeService::actor();
+            $plan = (new DnsChangeService())->consumePlan($domain, $token, $actor);
+            $encoded = json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            if (strlen($encoded) > 2097152) throw new \RuntimeException('任务数据超过2MB安全上限');
+            return (int)$connection->name('batch_task')->insertGetId([
+                'uid' => $identity['uid'], 'kid' => $identity['kid'], 'did' => $domain['id'], 'actor' => $actor, 'name' => $name,
+                'identity' => json_encode($identity, JSON_THROW_ON_ERROR), 'plan' => $encoded, 'results' => '[]', 'total' => count($plan['changes']),
+                'completed' => 0, 'status' => 0, 'cancel_requested' => 0, 'attempts' => 0, 'error' => null,
+                'addtime' => date('Y-m-d H:i:s'), 'updatetime' => date('Y-m-d H:i:s'), 'expiretime' => date('Y-m-d H:i:s', time() + 86400),
+            ]);
+        } finally { try { $lock->release(); } finally { $connection->close(); } }
     }
 
     /** Called by the existing minute worker, with a small cooperative time slice. */

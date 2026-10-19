@@ -299,7 +299,7 @@ function saveSetting(obj){
 function mailtest(){
 	var ii = layer.load(2, {shade:[0.1,'#fff']});
 	$.ajax({
-		type : 'GET',
+		type : 'POST',
 		url : '/system/mailtest',
 		dataType : 'json',
 		success : function(data) {
@@ -319,7 +319,7 @@ function mailtest(){
 function tgbottest(){
 	var ii = layer.load(2, {shade:[0.1,'#fff']});
 	$.ajax({
-		type : 'GET',
+		type : 'POST',
 		url : '/system/tgbottest',
 		dataType : 'json',
 		success : function(data) {
@@ -339,7 +339,7 @@ function tgbottest(){
 function webhooktest(){
 	var ii = layer.load(2, {shade:[0.1,'#fff']});
 	$.ajax({
-		type : 'GET',
+		type : 'POST',
 		url : '/system/webhooktest',
 		dataType : 'json',
 		success : function(data) {
@@ -386,7 +386,7 @@ function copyQqbotWebhookFallback(input){
 function customwebhooktest(){
 	var ii = layer.load(2, {shade:[0.1,'#fff']});
 	$.ajax({
-		type : 'GET',
+		type : 'POST',
 		url : '/system/customwebhooktest',
 		dataType : 'json',
 		success : function(data) {

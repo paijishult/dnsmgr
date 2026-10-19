@@ -64,6 +64,7 @@ class System extends BaseController
     public function mailtest()
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
+        if (!$this->request->isPost()) return json(['code' => -1, 'msg' => '请使用POST请求'])->code(405)->header(['Allow' => 'POST']);
         $mail_name = config_get('mail_recv') ? config_get('mail_recv') : config_get('mail_name');
         if (empty($mail_name)) return json(['code' => -1, 'msg' => '您还未设置邮箱！']);
         $result = \app\utils\MsgNotice::send_mail($mail_name, '邮件发送测试。', '这是一封测试邮件！<br/><br/>来自：' . $this->request->root(true));
@@ -77,6 +78,7 @@ class System extends BaseController
     public function tgbottest()
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
+        if (!$this->request->isPost()) return json(['code' => -1, 'msg' => '请使用POST请求'])->code(405)->header(['Allow' => 'POST']);
         $tgbot_token = config_get('tgbot_token');
         $tgbot_chatid = config_get('tgbot_chatid');
         if (empty($tgbot_token) || empty($tgbot_chatid)) return json(['code' => -1, 'msg' => '请先保存设置']);
@@ -92,6 +94,7 @@ class System extends BaseController
     public function webhooktest()
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
+        if (!$this->request->isPost()) return json(['code' => -1, 'msg' => '请使用POST请求'])->code(405)->header(['Allow' => 'POST']);
         $webhook_url = config_get('webhook_url');
         if (empty($webhook_url)) return json(['code' => -1, 'msg' => '请先保存设置']);
         $content = "这是一封测试消息！\n来自：" . $this->request->root(true);
@@ -106,6 +109,7 @@ class System extends BaseController
     public function customwebhooktest()
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
+        if (!$this->request->isPost()) return json(['code' => -1, 'msg' => '请使用POST请求'])->code(405)->header(['Allow' => 'POST']);
         $custom_webhook_url = config_get('custom_webhook_url');
         if (empty($custom_webhook_url)) return json(['code' => -1, 'msg' => '请先保存设置']);
         $content = "这是一封测试消息！\n来自：" . $this->request->root(true);

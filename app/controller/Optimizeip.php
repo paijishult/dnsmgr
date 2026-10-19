@@ -152,8 +152,9 @@ class Optimizeip extends BaseController
                     Db::name('optimizeip')->where('id', $id)->update(['status' => 1, 'errmsg' => null, 'updatetime' => date('Y-m-d H:i:s')]);
                     return json(['code' => 0, 'msg' => '优选任务执行成功：' . $result]);
                 } catch (Exception $e) {
-                    Db::name('optimizeip')->where('id', $id)->update(['status' => 2, 'errmsg' => $e->getMessage(), 'updatetime' => date('Y-m-d H:i:s')]);
-                    return json(['code' => -1, 'msg' => '优选任务执行失败：' . $e->getMessage(), 'stack' => $e->__toString()]);
+                    $reason = \app\lib\AuditHelper::scrub($e->getMessage());
+                    Db::name('optimizeip')->where('id', $id)->update(['status' => 2, 'errmsg' => $reason, 'updatetime' => date('Y-m-d H:i:s')]);
+                    return json(['code' => -1, 'msg' => '优选任务执行失败：' . $reason]);
                 }
             } else {
                 return json(['code' => -1, 'msg' => '参数错误']);

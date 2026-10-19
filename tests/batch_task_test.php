@@ -32,6 +32,7 @@ namespace {
     require_once __DIR__ . '/../app/service/BatchTaskService.php';
     require_once __DIR__ . '/../app/controller/Batch.php';
     use think\facade\Db;
+    use think\facade\Cache;
     use app\service\BatchTaskService;
     use app\service\DnsChangeService;
 
@@ -95,7 +96,11 @@ namespace {
             if ($this->table === 'batch_task' && ($hook = $GLOBALS['task_find_hook'] ?? null)) { $GLOBALS['task_find_hook'] = null; $hook(); }
             return $result;
         }
-        public function count() { return count($this->rows()); }
+        public function count() {
+            $count = count($this->rows());
+            if ($this->table === 'batch_task' && ($hook = $GLOBALS['task_count_hook'] ?? null)) { $GLOBALS['task_count_hook'] = null; $hook(); }
+            return $count;
+        }
         public function value($key) { return $this->find()[$key] ?? null; }
         public function column($key) { return array_column($this->rows(), $key); }
         public function select() {
@@ -257,5 +262,30 @@ namespace {
     request()->user['id'] = 7; request()->user['level'] = 2; request()->isApi = true; request()->apiKey = ['id' => 12];
     batchCheck((new \app\controller\Batch())->details()['code'] === -1, 'Even admin API keys are isolated by creator identity');
     batchCheck(BatchConnection::$locks === [], 'Every execution path releases database advisory locks');
+    // Interleave two enqueue requests exactly between quota read and insert.
+    setupBatch(1);
+    $seed = batchTask();
+    for ($i = 2; $i <= 19; $i++) { $seed['id'] = $i; Db::$tables['batch_task'][] = $seed; }
+    $domain = Db::$tables['domain'][0];
+    $operation = [['action'=>'add','name'=>'quota','type'=>'A','value'=>'192.0.2.10']];
+    $first = (new DnsChangeService())->preview($domain, $GLOBALS['batch_dns'], $operation, DnsChangeService::actor());
+    $second = (new DnsChangeService())->preview($domain, $GLOBALS['batch_dns'], $operation, DnsChangeService::actor());
+    $overlapError = null;
+    $GLOBALS['task_count_hook'] = function () use ($domain, $second, &$overlapError) {
+        try { (new BatchTaskService())->enqueue($domain, $second['token'], 'overlapping request'); }
+        catch (Throwable $error) { $overlapError = $error; }
+    };
+    (new BatchTaskService())->enqueue($domain, $first['token'], 'last available slot');
+    batchCheck(count(Db::$tables['batch_task']) === 20 && $overlapError?->getCode() === 102, 'Overlapping requests cannot exceed the per-user pending task quota');
+    batchCheck(isset(Cache::$data['dns_preview_'.$second['token']]) && BatchConnection::$locks === [], 'Rejected overlapping enqueue preserves its preview and releases its own connection');
+    Db::$tables['batch_task'][0]['status'] = 2;
+    (new BatchTaskService())->enqueue($domain, $second['token'], 'retry after a slot frees');
+    batchCheck(count(array_filter(Db::$tables['batch_task'], fn($row)=>in_array($row['status'], [0,1,3], true))) === 20, 'Quota lock is reusable after release');
+    $preview = (new DnsChangeService())->preview($domain, $GLOBALS['batch_dns'], $operation, DnsChangeService::actor());
+    batchReject(fn()=>(new BatchTaskService())->enqueue($domain, $preview['token'], 'over quota'), 'Full quota rejects enqueue');
+    batchCheck(isset(Cache::$data['dns_preview_'.$preview['token']]) && BatchConnection::$locks === [], 'Quota rejection neither consumes a preview nor leaks its mutex');
+    Db::$tables['batch_task'][1]['status'] = 2;
+    batchReject(fn()=>(new BatchTaskService())->enqueue($domain, $preview['token'], str_repeat('x',121)), 'Overlong task name is rejected');
+    batchCheck(isset(Cache::$data['dns_preview_'.$preview['token']]), 'Invalid task name cannot consume a confirmed preview');
     echo 'Batch tasks: ' . $checks . " checks passed\n";
 }

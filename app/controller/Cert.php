@@ -713,7 +713,7 @@ class Cert extends BaseController
             }
             return json(['code' => 0, 'msg' => '证书处理完成']);
         } catch (Exception $e) {
-            return json(['code' => -1, 'msg' => $e->getMessage()] + ($this->request->isApi ? [] : ['trace' => $e->getTrace()]));
+            return json(['code' => -1, 'msg' => \app\lib\AuditHelper::scrub($e->getMessage())]);
         }
     }
 
@@ -1010,7 +1010,7 @@ class Cert extends BaseController
             $service->process(true);
             return json(['code' => 0, 'msg' => 'SSL证书部署任务执行成功！']);
         } catch (Exception $e) {
-            return json(['code' => -1, 'msg' => $e->getMessage()] + ($this->request->isApi ? [] : ['trace' => $e->getTrace()]));
+            return json(['code' => -1, 'msg' => \app\lib\AuditHelper::scrub($e->getMessage())]);
         }
     }
 

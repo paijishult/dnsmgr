@@ -132,6 +132,14 @@ try {
     await page.evaluate(()=>cleancache());await page.waitForTimeout(50);
     if(!requests.some(r=>r.url==='/cleancache'&&r.method==='POST'&&r.csrf))throw new Error('missing cache POST/token');
    });
+   if(entry.name==='system/noticeset')await check('notification tests use CSRF POST',async()=>{
+    for(const action of ['mailtest','tgbottest','webhooktest','customwebhooktest']) {
+     const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/system/'+action);
+     await page.evaluate(name=>window[name](),action);await response;
+     if(!requests.some(r=>r.url==='/system/'+action&&r.method==='POST'&&r.csrf))throw new Error(action+' missing notification POST/token');
+     await page.evaluate(()=>layer.closeAll());
+    }
+   });
    if(await page.locator('#logoutButton').count())await check('logout uses CSRF POST',async()=>{
     await page.evaluate(()=>jQuery('#logoutButton').trigger('click'));await page.waitForTimeout(50);
     if(!requests.some(r=>r.url==='/logout'&&r.method==='POST'&&r.csrf))throw new Error('missing logout POST/token');
