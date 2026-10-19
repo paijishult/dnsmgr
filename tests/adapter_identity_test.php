@@ -1,6 +1,7 @@
 <?php
-require __DIR__.'/../app/lib/DnsInterface.php';require __DIR__.'/../app/lib/dns/powerdns.php';require __DIR__.'/../app/lib/dns/technitium.php';require __DIR__.'/../app/lib/AutomaticDnsTarget.php';
+require __DIR__.'/../app/lib/DnsInterface.php';require __DIR__.'/../app/lib/dns/powerdns.php';require __DIR__.'/../app/lib/dns/technitium.php';require __DIR__.'/../app/lib/AutomaticDnsTarget.php';require __DIR__.'/../app/lib/RecordGuard.php';
 function isNullOrEmpty($v){return $v===null||$v==='';}
+function getDnsType($value){return 'A';}
 function cache($key,$value=null,...$args){if(func_num_args()>1)$GLOBALS['adapter_cache'][$key]=$value;return $GLOBALS['adapter_cache'][$key]??null;}
 function http_request($url,$body=null,...$args){
     $isPower=str_contains($url,'/servers/');$host=parse_url($url,PHP_URL_HOST);$state=&$GLOBALS['adapter_state'][$host];
@@ -27,6 +28,21 @@ $GLOBALS['adapter_state']['192.0.2.1']=array_reverse($GLOBALS['adapter_state']['
 identityCheck($fresh[1]['RecordId']===$target,'PowerDNS IDs survive RRset reorder');
 identityCheck($a->setDomainRecordStatus($target,'0')!==false,'A stable ID can target the original record after reorder');
 $change=end($GLOBALS['adapter_writes'])[1]['rrsets'][0];identityCheck($change['name']==='www.example.com.'&&$change['records'][0]['disabled']===true,'The original host is paused, not the row now occupying its old index');
+identityCheck($a->updateDomainRecord($target,'www','A','192.0.2.44')!==false,'PowerDNS value switching succeeds');
+$newId=app\lib\AutomaticDnsTarget::afterUpdate($a,['type'=>'powerdns','name'=>'example.com'],'www','192.0.2.44','default');
+identityCheck($newId!==$target,'A successful value change resolves its new stable record ID');
+class IdentityConnection {
+    public array $rows=['dmtask'=>[],'sctask'=>[]];public function startTrans(){}public function commit(){}public function rollback(){}
+    public function name($table){return new IdentityQuery($this,$table);}
+}
+class IdentityQuery {
+    private array $where=[];public function __construct(private IdentityConnection $db,private string $table){}
+    public function where($key,$value){$this->where[$key]=$value;return $this;}
+    public function update($data){foreach($this->db->rows[$this->table] as &$row){foreach($this->where as $key=>$value)if($row[$key]!==$value)continue 2;$row=array_merge($row,$data);}return 1;}
+}
+$connection=new IdentityConnection();$connection->rows=['dmtask'=>[['did'=>1,'recordid'=>$target]],'sctask'=>[['did'=>1,'recordid'=>$target],['did'=>1,'recordid'=>$target],['did'=>2,'recordid'=>$target]]];
+app\lib\AutomaticDnsTarget::retarget($connection,1,$target,$newId);
+identityCheck(array_column($connection->rows['sctask'],'recordid')===[$newId,$newId,$target]&&$connection->rows['dmtask'][0]['recordid']===$newId,'Paired schedules and monitors follow the changed record without crossing domain boundaries');
 foreach(['powerdns'=>'0_0','technitium'=>'0'] as $type=>$id){$threw=false;try{app\lib\AutomaticDnsTarget::validate(['recordid'=>$id],['type'=>$type]);}catch(RuntimeException $e){$threw=true;}identityCheck($threw,'Legacy positional automatic task IDs fail closed');}
 $row=static fn($ip)=>['name'=>'www.example.com','type'=>'A','ttl'=>600,'disabled'=>false,'rData'=>['ipAddress'=>$ip,'fixtureOption'=>'stable']];
 $GLOBALS['adapter_state']['192.0.2.3']=[$row('192.0.2.31'),['name'=>'mail.example.com','type'=>'A','ttl'=>600,'disabled'=>false,'rData'=>['ipAddress'=>'192.0.2.32']]];

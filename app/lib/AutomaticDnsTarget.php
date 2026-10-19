@@ -4,6 +4,19 @@ namespace app\lib;
 /** Persistent tasks must identify a record, never a row number in a zone listing. */
 class AutomaticDnsTarget
 {
+    /** Paired schedules keep referring to the same record after a value switch. */
+    public static function retarget($connection, int $did, string $oldId, string $newId): void
+    {
+        if ($oldId === $newId) return;
+        $connection->startTrans();
+        try {
+            foreach (['dmtask','sctask'] as $table) {
+                $connection->name($table)->where('did', $did)->where('recordid', $oldId)->update(['recordid'=>$newId]);
+            }
+            $connection->commit();
+        } catch (\Throwable $e) { $connection->rollback(); throw $e; }
+    }
+
     public static function validate(array $task, array $domain): void
     {
         $type = $domain['type'] ?? '';
