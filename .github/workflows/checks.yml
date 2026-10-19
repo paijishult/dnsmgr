@@ -1,0 +1,106 @@
+name: Regression checks
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: curl, ftp, gd, mbstring, openssl, pcntl, pdo_mysql, pdo_sqlite, sockets, ssh2
+          coverage: none
+          tools: composer:v2
+      - run: composer validate --strict
+      - run: composer install --no-interaction --no-progress --prefer-dist --no-dev
+      - run: composer audit --no-dev
+      - name: PHP syntax
+        run: find app config route tests -name '*.php' -print0 | xargs -0 -n1 php -l
+      - run: php tests/run.php
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: curl, ftp, gd, mbstring, openssl, pdo_mysql, pdo_sqlite, sockets, ssh2
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --no-progress --prefer-dist --no-dev
+      - name: Install isolated browser runtime
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dnsmgr-browser" --no-package-lock --ignore-scripts playwright@1.62.1
+          "$RUNNER_TEMP/dnsmgr-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Native UI security and dropdown regressions
+        env:
+          DNSMGR_PLAYWRIGHT_MODULE: ${{ runner.temp }}/dnsmgr-browser/node_modules/playwright/index.mjs
+        run: node tests/browser-regressions.mjs
+      - name: Render all real ThinkPHP templates
+        env:
+          DNSMGR_PAGE_FIXTURES: ${{ runner.temp }}/dnsmgr-pages
+        run: php tests/render-pages.php
+      - name: Desktop and mobile page audit
+        env:
+          DNSMGR_PAGE_FIXTURES: ${{ runner.temp }}/dnsmgr-pages
+          DNSMGR_PLAYWRIGHT_MODULE: ${{ runner.temp }}/dnsmgr-browser/node_modules/playwright/index.mjs
+        run: node tests/browser-pages.mjs
+      - name: Save browser QA report and screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-browser-qa
+          path: ${{ runner.temp }}/dnsmgr-pages/browser
+          if-no-files-found: ignore
+  mysql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mysql: ['mysql:5.6', 'mysql:8.0']
+    services:
+      mysql:
+        image: ${{ matrix.mysql }}
+        env:
+          MYSQL_ROOT_PASSWORD: integration-only
+          MYSQL_ROOT_HOST: '%'
+          MYSQL_DATABASE: dnsmgr_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pintegration-only"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_mysql
+          coverage: none
+      - name: Native MySQL locks and additive schema
+        env:
+          TEST_MYSQL_DSN: mysql:host=127.0.0.1;port=3306;dbname=dnsmgr_test;charset=utf8mb4
+          TEST_MYSQL_USER: root
+          TEST_MYSQL_PASSWORD: integration-only
+        run: php tests/tasks_mysql_integration_test.php

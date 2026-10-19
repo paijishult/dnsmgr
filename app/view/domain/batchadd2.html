@@ -116,7 +116,8 @@ new Vue({
 		}
     },
     mounted() {
-		this.domainList = JSON.parse(sessionStorage.getItem('domains')) || [];
+		try { this.domainList = JSON.parse(sessionStorage.getItem('domains')) || []; } catch (e) { this.domainList = []; }
+		if (!Array.isArray(this.domainList)) this.domainList = [];
 		if(this.domainList.length == 0){
 			layer.alert('请先选中要添加解析的域名', {icon: 2}, function(){
 				window.location.href = '/domain';
@@ -161,11 +162,12 @@ new Vue({
 			var ii = layer.load(2);
 			for(var i=0; i<this.domainList.length; i++){
 				this.domainList[i].result = '<span class="text-yellow"><i class="fa fa-refresh fa-spin fa-fw"></i> 正在添加</span>';
-				var res = await this.save(this.domainList[i].id);
+				var res;
+				try { res = await this.save(this.domainList[i].id); } catch (e) { res = {code: -1, msg: '服务器错误，请核对解析现状后重试'}; }
 				if(res.code == 0){
-					this.domainList[i].result = '<span class="text-green">'+res.msg+'</span>';
+					this.domainList[i].result = '<span class="text-green">'+htmlEscape(res.msg)+'</span>';
 				}else{
-					this.domainList[i].result = '<span class="text-red">'+res.msg+'</span>';
+					this.domainList[i].result = '<span class="text-red">'+htmlEscape(res.msg)+'</span>';
 				}
 			}
 			layer.close(ii);

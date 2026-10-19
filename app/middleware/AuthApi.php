@@ -6,8 +6,8 @@ namespace app\middleware;
 
 use app\lib\ApiKeyHelper;
 use app\lib\AuditHelper;
+use app\lib\AttemptLimiter;
 use Exception;
-use think\facade\Cache;
 use think\facade\Db;
 
 /**
@@ -24,9 +24,8 @@ class AuthApi
     public function handle($request, \Closure $next)
     {
         $ip = ApiKeyHelper::clientIp();
-        $failKey = 'apifail_' . md5((string)$ip);
-        $fail = Cache::get($failKey);
-        if (is_array($fail) && $fail['n'] >= self::FAIL_LIMIT && $fail['t'] > time() - self::FAIL_WINDOW) {
+        $failKey = 'api-fail:' . $ip;
+        if (!AttemptLimiter::check($failKey, self::FAIL_LIMIT)['allowed']) {
             $request->auditApiDenied = true;
             return json(['code' => -1, 'msg' => '认证失败次数过多，请' . ceil(self::FAIL_WINDOW / 60) . '分钟后再试'])->code(429);
         }
@@ -52,9 +51,9 @@ class AuthApi
         }
         if ($result !== true) {
             [$status, $msg, $countFail] = $result;
-            if ($countFail) $this->recordFail($failKey, $fail);
+            if ($countFail) AttemptLimiter::hit($failKey, self::FAIL_LIMIT, self::FAIL_WINDOW);
             if ($status != 404) $request->auditApiDenied = true;
-            return json(['code' => -1, 'msg' => $msg])->code($status);
+            return json(['code' => -1, 'msg' => $msg])->code($status)->header($request->apiRateHeaders ?? []);
         }
 
         // 原有接口中部分功能只响应AJAX请求，API调用统一视为AJAX请求
@@ -173,19 +172,13 @@ class AuthApi
         // 频率限制（每分钟）
         $limit = intval($row['ratelimit']);
         if ($limit > 0) {
-            $window = intdiv(time(), 60);
-            $rlKey = 'apirl_' . $row['id'];
-            $rl = Cache::get($rlKey);
-            if (!is_array($rl) || $rl['w'] != $window) {
-                $rl = ['w' => $window, 'n' => 0];
-            }
-            $rl['n']++;
-            Cache::set($rlKey, $rl, 120);
+            $rl = AttemptLimiter::hit('api-rate:' . $row['id'], $limit, 60);
             $request->apiRateHeaders = [
                 'X-RateLimit-Limit' => (string)$limit,
-                'X-RateLimit-Remaining' => (string)max(0, $limit - $rl['n']),
+                'X-RateLimit-Remaining' => (string)$rl['remaining'],
             ];
-            if ($rl['n'] > $limit) {
+            if (!$rl['allowed']) {
+                $request->apiRateHeaders['Retry-After'] = (string)$rl['retry_after'];
                 return [429, '请求过于频繁，该API密钥每分钟最多调用' . $limit . '次', false];
             }
         }
@@ -236,13 +229,4 @@ class AuthApi
         return $scope['*'] ?? null;
     }
 
-    private function recordFail($failKey, $fail)
-    {
-        if (!is_array($fail) || $fail['t'] <= time() - self::FAIL_WINDOW) {
-            $fail = ['n' => 0, 't' => time()];
-        }
-        $fail['n']++;
-        $fail['t'] = time();
-        Cache::set($failKey, $fail, self::FAIL_WINDOW);
-    }
 }

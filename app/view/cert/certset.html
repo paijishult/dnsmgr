@@ -106,7 +106,7 @@ function saveSetting(obj){
 				  window.location.reload()
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		},
 		error:function(data){

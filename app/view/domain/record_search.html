@@ -95,7 +95,7 @@ td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:360px;}
 {block name="script"}
 <script src="/static/js/layer/layer.js"></script>
 <script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
-<script type="application/json" id="domain-list-data">{$domainList|json_encode|raw}</script>
+<script type="application/json" id="domain-list-data">{:json_encode($domainList, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)}</script>
 <script>
 var domainList = JSON.parse(document.getElementById('domain-list-data').textContent || '[]');
 var searchResults = [];
@@ -120,7 +120,7 @@ $(document).ready(function(){
 		columns: [
 			{field: 'selected', checkbox: true},
 			{field: 'domainName', title: '域名'},
-			{field: 'dnsType', title: '平台', formatter: function(value, row){
+			{field: 'dnsType', escape: false, title: '平台', formatter: function(value, row){
 				var name = $('<div>').text(value || '').html();
 				var icon = row.icon ? '<img src="/static/images/' + encodeURIComponent(row.icon) + '" class="type-logo" alt=""> ' : '';
 				return icon + name;

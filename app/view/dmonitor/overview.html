@@ -195,10 +195,10 @@ function submitClean(){
 	}
 	$.post('/dmonitor/clean', {days: days}, function(res){
 		if(res.code == 0){
-			layer.msg(res.msg, {icon: 1});
+			layer.msg(htmlEscape(res.msg), {icon: 1});
 			$('#modal-clean').modal('hide');
 		}else{
-			layer.alert(res.msg, {icon: 2});
+			layer.alert(htmlEscape(res.msg), {icon: 2});
 		}
 	});
 }
@@ -212,7 +212,7 @@ function submitNotice(){
 				window.location.reload()
 			});
 		}else{
-			layer.alert(res.msg, {icon: 2});
+			layer.alert(htmlEscape(res.msg), {icon: 2});
 		}
 	});
 }

@@ -50,15 +50,17 @@ $(document).ready(function(){
 		columns: [
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
 			{
 				field: 'typename',
+				escape: false,
 				title: '账户类型',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<img src="/static/images/'+row.icon+'" class="type-logo"></img>'+value;
+					return '<img src="/static/images/'+encodeURIComponent(row.icon || '')+'" class="type-logo"></img>'+htmlEscape(value);
 				}
 			},
 			{
@@ -75,11 +77,13 @@ $(document).ready(function(){
 			},
 			{
 				field: 'addtime',
+				escape: true,
 				title: '添加时间',
 				sortable: true
 			},
 			{
 				field: 'teststatus',
+				escape: false,
 				title: '可用性',
 				formatter: function(value, row, index) {
 					return tester.cell(row.id);
@@ -87,6 +91,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '<a href="/cert/account/edit?deploy=1&id='+row.id+'" class="btn btn-info btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a> <a href="/cert/deploytask?aid='+row.id+'" class="btn btn-default btn-xs">任务</a> <a href="javascript:tester.one('+row.id+')" class="btn btn-success btn-xs"><i class="fa fa-plug"></i> 测试</a>';
@@ -110,7 +115,7 @@ function delItem(id){
 				layer.msg('删除成功', {icon: 1, time:800});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});

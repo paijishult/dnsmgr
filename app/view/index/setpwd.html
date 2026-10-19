@@ -62,8 +62,10 @@
 				<div class="qr-image mt-4" id="qrcode"></div>
 				<p><a href="javascript:;" data-clipboard-text="" id="copy-btn">复制密钥</a></p>
 				<form id="form-totp" style="text-align: left;" onsubmit="return bind_totp()">
+					<div class="form-group"><label for="totp-password">当前登录密码</label><input type="password" class="form-control" name="password" id="totp-password" autocomplete="current-password" required></div>
+					{if $user.totp_open == 1}<div class="form-group"><label for="totp-oldcode">原验证器动态口令</label><input type="text" class="form-control" name="oldcode" id="totp-oldcode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></div>{/if}
 					<div class="form-group mt-4">
-						<div class="input-group"><input type="number" class="form-control input-lg" name="code" id="code" value="" placeholder="填写动态口令" autocomplete="off" required><div class="input-group-btn"><input type="submit" name="submit" value="完成绑定" class="btn btn-success btn-lg btn-block"/></div></div>
+						<div class="input-group"><input type="text" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" class="form-control input-lg" name="code" id="code" value="" placeholder="填写新验证器动态口令" autocomplete="one-time-code" required><div class="input-group-btn"><input type="submit" name="submit" value="完成绑定" class="btn btn-success btn-lg btn-block"/></div></div>
 					</div>
 				</form>
 			</div>
@@ -94,7 +96,7 @@ function saveAccount(obj){
 				  window.location.reload()
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		},
 		error:function(data){
@@ -124,7 +126,7 @@ function open_totp(){
 				$('#modal-totp').modal('show');
 				$("#code").focus();
 			}else{
-				layer.alert(res.msg, {icon: 2});
+				layer.alert(htmlEscape(res.msg), {icon: 2});
 			}
 		});
 	}else{
@@ -134,39 +136,43 @@ function open_totp(){
 }
 function bind_totp(){
 	var code = $("#code").val();
-	if(code.length != 6){
+	var password = $('#totp-password').val(), oldcode = $('#totp-oldcode').val() || '';
+	if (!password) { layer.msg('请填写当前登录密码', {icon: 2}); return false; }
+	if(!/^\d{6}$/.test(code)){
 		layer.msg('动态口令格式错误', {icon: 2});
 		return false;
 	}
 	var ii = layer.load(2, {shade:[0.1,'#fff']});
-	$.post('/totp/bind', {secret:commonData.secret, code:code}, function(res){
+	$.post('/totp/bind', {secret:commonData.secret, code:code, password:password, oldcode:oldcode}, function(res){
 		layer.close(ii);
 		if(res.code == 0){
 			layer.alert('TOTP绑定成功', {icon: 1}, function(){
 				window.location.reload();
 			});
 		}else{
-			layer.alert(res.msg, {icon: 2});
+			layer.alert(htmlEscape(res.msg), {icon: 2});
 		}
 	});
 	return false;
 }
 function close_totp(){
-	layer.confirm('确定要关闭TOTP二次验证吗？', {
-		btn: ['确定','取消']
-	}, function(){
+	layer.open({type: 1, title: '关闭TOTP二次验证', area: ['min(420px, 94vw)', 'auto'], btn: ['确认关闭', '取消'],
+		content: '<form id="totp-close-form" style="padding:20px"><div class="form-group"><label>当前登录密码</label><input type="password" name="password" class="form-control" autocomplete="current-password" required></div><div class="form-group"><label>当前动态口令</label><input type="text" name="code" class="form-control" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></div></form>',
+		yes: function(index){
+		var form = $('#totp-close-form'), password = form.find('[name=password]').val(), code = form.find('[name=code]').val();
+		if (!password || !/^\d{6}$/.test(code)) { layer.msg('请填写当前密码和6位动态口令', {icon: 2}); return; }
 		var ii = layer.load(2, {shade:[0.1,'#fff']});
-		$.post('/totp/close', {}, function(res){
+		$.post('/totp/close', {password: password, code: code}, function(res){
 			layer.close(ii);
 			if(res.code == 0){
 				layer.alert('TOTP已关闭', {icon: 1}, function(){
 					window.location.reload();
 				});
 			}else{
-				layer.alert(res.msg, {icon: 2});
+				layer.alert(htmlEscape(res.msg), {icon: 2});
 			}
-		});
-	});
+		}).fail(function(){ layer.close(ii); layer.msg('服务器错误', {icon: 2}); });
+	}});
 }
 $(document).ready(function(){
 	var clipboard = new Clipboard('#copy-btn');
@@ -175,12 +181,6 @@ $(document).ready(function(){
 	});
 	clipboard.on('error', function (e) {
 		layer.msg('复制失败', {icon: 2});
-	});
-	$("#code").keyup(function(){
-		var code = $(this).val();
-		if(code.length == 6){
-			$("#form-totp").submit();
-		}
 	});
 });
 </script>

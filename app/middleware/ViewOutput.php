@@ -20,6 +20,7 @@ class ViewOutput
         View::assign('islogin', $request->islogin);
         View::assign('user', $request->user);
         View::assign('skin', getAdminSkin());
+        View::assign('csrfToken', \app\lib\CsrfToken::token());
         return $next($request);
     }
 }

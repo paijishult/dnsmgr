@@ -29,7 +29,7 @@ class Index extends BaseController
                 $dm = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(active=1),0) AS a, IFNULL(SUM(status=0),0) AS s0, IFNULL(SUM(status=1),0) AS s1 FROM `' . $prefix . 'dmtask`')[0];
                 $op = Db::query('SELECT IFNULL(SUM(active=1),0) AS a, IFNULL(SUM(status=1),0) AS s1, IFNULL(SUM(status=2),0) AS s2 FROM `' . $prefix . 'optimizeip`')[0];
                 $co = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(status=3),0) AS s3, IFNULL(SUM(status<0),0) AS s5, IFNULL(SUM(expiretime>=? AND expiretime<?),0) AS s6, IFNULL(SUM(expiretime<?),0) AS s7 FROM `' . $prefix . 'cert_order`', [$now, date('Y-m-d H:i:s', time() + 86400 * 7), $now])[0];
-                $cd = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(status=0),0) AS s0, IFNULL(SUM(status=1),0) AS s1, IFNULL(SUM(status=-1),0) AS s2 FROM `' . $prefix . 'cert_deploy`')[0];
+                $cd = Db::query('SELECT COUNT(*) AS c, IFNULL(SUM(status=0),0) AS s0, IFNULL(SUM(status=1),0) AS s1, IFNULL(SUM(status=-1),0) AS s2, IFNULL(SUM(status=2),0) AS verification FROM `' . $prefix . 'cert_deploy`')[0];
 
                 $stat['tasks'] = (int)$dm['c'];
                 $stat['certs'] = (int)$co['c'];
@@ -54,6 +54,7 @@ class Index extends BaseController
                 $stat['certdeploy_status_0'] = (int)$cd['s0'];
                 $stat['certdeploy_status_1'] = (int)$cd['s1'];
                 $stat['certdeploy_status_2'] = (int)$cd['s2'];
+                $stat['certdeploy_verification'] = (int)$cd['verification'];
 
                 try {
                     $stat['apikeys'] = Db::name('apikey')->where('status', 1)->count();
@@ -153,6 +154,7 @@ class Index extends BaseController
     public function totp()
     {
         if (!checkPermission(1)) return $this->alert('error', '无权限');
+        if (!$this->request->isPost()) return json(['code' => -1, 'msg' => '请使用POST请求'])->code(405);
         $action = input('param.action');
         if ($action == 'generate') {
             try {
@@ -166,8 +168,11 @@ class Index extends BaseController
         } elseif ($action == 'bind') {
             $secret = input('post.secret');
             $code = input('post.code');
-            if (empty($secret)) return json(['code' => -1, 'msg' => '密钥不能为空']);
-            if (empty($code)) return json(['code' => -1, 'msg' => '请输入动态口令']);
+            if (!is_string($secret) || !preg_match('/^[A-Z2-7]{16,128}$/Di', $secret)) return json(['code' => -1, 'msg' => 'TOTP密钥格式不正确']);
+            if (!is_string($code) || !preg_match('/^[0-9]{6}$/D', $code)) return json(['code' => -1, 'msg' => '请输入6位动态口令']);
+            if (!$this->verifyTotpChange(!empty($this->request->user['totp_open']) ? input('post.oldcode') : null)) {
+                return json(['code' => -1, 'msg' => '当前密码或原动态口令错误，或尝试过于频繁']);
+            }
             try {
                 $totp = \app\lib\TOTP::create($secret);
                 if (!$totp->verify($code)) {
@@ -179,9 +184,30 @@ class Index extends BaseController
             Db::name('user')->where('id', $this->request->user['id'])->update(['totp_open' => 1, 'totp_secret' => $secret]);
             return json(['code' => 0, 'msg' => 'succ']);
         } elseif ($action == 'close') {
+            if (!$this->verifyTotpChange(input('post.code'))) return json(['code' => -1, 'msg' => '当前密码或动态口令错误，或尝试过于频繁']);
             Db::name('user')->where('id', $this->request->user['id'])->update(['totp_open' => 0, 'totp_secret' => null]);
             return json(['code' => 0, 'msg' => 'succ']);
         }
+        return json(['code' => -1, 'msg' => '参数错误']);
+    }
+
+    private function verifyTotpChange($code): bool
+    {
+        $user = $this->request->user;
+        $key = 'totp-setting:' . $user['id'] . ':' . \app\lib\ApiKeyHelper::clientIp();
+        if (!\app\lib\AttemptLimiter::hit($key, 5, 300)['allowed']) return false;
+        $password = input('post.password');
+        if (!is_string($password) || !password_verify($password, $user['password'])) return false;
+        if (!empty($user['totp_open'])) {
+            if (!is_string($code) || !preg_match('/^[0-9]{6}$/D', $code)) return false;
+            try {
+                if (!\app\lib\TOTP::create($user['totp_secret'])->verify($code, null, 1)) return false;
+            } catch (\Throwable $e) {
+                return false;
+            }
+        }
+        \app\lib\AttemptLimiter::clear($key);
+        return true;
     }
 
     public function test()

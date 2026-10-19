@@ -96,6 +96,7 @@ $(document).ready(function(){
 		columns: [
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
@@ -107,20 +108,23 @@ $(document).ready(function(){
 			},
 			{
 				field: 'host',
+				escape: false,
 				title: '主机记录',
 				formatter: function(value, row, index) {
-					return value + '<a href="javascript:;" data-clipboard-text="'+value+'" class="copy-btn pull-right"><i class="fa fa-copy"></i></a>';
+					return htmlEscape(value) + '<a href="javascript:;" data-clipboard-text="'+htmlEscape(value)+'" class="copy-btn pull-right"><i class="fa fa-copy"></i></a>';
 				}
 			},
 			{
 				field: 'record',
+				escape: false,
 				title: 'CNAME记录值',
 				formatter: function(value, row, index) {
-					return value + '<a href="javascript:;" data-clipboard-text="'+value+'" class="copy-btn pull-right"><i class="fa fa-copy"></i></a>';
+					return htmlEscape(value) + '<a href="javascript:;" data-clipboard-text="'+htmlEscape(value)+'" class="copy-btn pull-right"><i class="fa fa-copy"></i></a>';
 				}
 			},
 			{
 				field: 'status',
+				escape: false,
 				title: '状态',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -136,11 +140,13 @@ $(document).ready(function(){
 			},
 			{
 				field: 'addtime',
+				escape: true,
 				title: '添加时间',
 				sortable: true
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '<a href="javascript:editframe('+row.id+')" class="btn btn-primary btn-xs">编辑</a> <a href="javascript:delItem('+row.id+')" class="btn btn-danger btn-xs">删除</a>';
@@ -210,7 +216,7 @@ function save(){
 			layer.close(ii);
 			if(data.code == 0){
 				setCookie('cname_did', $("#form-store select[name=did]").val(), 2562000);
-				layer.alert(data.msg,{
+				layer.alert(htmlEscape(data.msg),{
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -219,7 +225,7 @@ function save(){
 					searchRefresh();
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -233,7 +239,7 @@ function delItem(id){
 				layer.msg('删除成功', {icon: 1, time:800});
 				searchRefresh();
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -250,7 +256,7 @@ function checkItem(id){
 			}
 			searchRefresh();
 		} else {
-			layer.alert(data.msg, {icon: 2});
+			layer.alert(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }

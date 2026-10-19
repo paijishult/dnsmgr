@@ -223,7 +223,7 @@ class directadmin implements DeployInterface
             'connect_timeout' => 10,
             'allow_redirects' => false,
             'http_errors' => false,
-            'verify' => false,
+            'verify' => true,
             'auth' => [$this->username, $this->password],
             'headers' => [
                 'Accept' => 'application/x-www-form-urlencoded, application/json',

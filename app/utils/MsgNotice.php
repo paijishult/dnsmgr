@@ -120,10 +120,13 @@ class MsgNotice
         $mail_title = $typename;
         if(!empty($row['remark'])) $mail_title .= '('.$row['remark'].')';
         $mail_title .= 'SSL证书部署'.($result?'成功':'失败').'通知';
+        $verificationFailed = !$result && (int)$row['status'] === 2;
+        if ($verificationFailed) $mail_title = $typename . ' SSL证书线上验收失败通知';
         if ($result) {
             $mail_content = '尊敬的用户，您好：您的SSL证书已成功部署到'.$typename.'！<br/><b>自动部署账户：</b> ['.$account['id'].']'.$typename.'('.($account['remark']?$account['remark']:$account['name']).')<br/><b>关联SSL证书：</b> ['.$row['oid'].']'.implode('、', $domainList).'<br/><b>任务备注：</b> '.($row['remark']?$row['remark']:'无');
         } else {
             $mail_content = '尊敬的用户，您好：您的SSL证书部署失败！<br/><b>失败原因：</b> <font color="warning">'.$row['error'].'</font><br/><b>自动部署账户：</b> ['.$account['id'].']'.$typename.'('.($account['remark']?$account['remark']:$account['name']).')<br/><b>关联SSL证书：</b> ['.$row['oid'].']'.implode('、', $domainList).'<br/><b>任务备注：</b> '.($row['remark']?$row['remark']:'无');
+            if ($verificationFailed) $mail_content = str_replace('您的SSL证书部署失败！', '您的SSL证书部署已完成，但线上证书验收未通过；后续只重试验收。', $mail_content);
         }
         $mail_content .= '<br/><font color="grey">'.self::$sitename.'</font><br/><font color="grey">'.date('Y-m-d H:i:s').'</font>';
 
@@ -436,7 +439,7 @@ class MsgNotice
 
         $options = [
             'timeout' => 10,
-            'verify' => false,
+            'verify' => true,
             'headers' => $headers,
             'http_errors' => false,
         ];
@@ -485,8 +488,8 @@ class MsgNotice
         }
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
         $httpheader[] = "Accept: */*";
         $httpheader[] = "Accept-Encoding: gzip,deflate,sdch";
         $httpheader[] = "Accept-Language: zh-CN,zh;q=0.8";

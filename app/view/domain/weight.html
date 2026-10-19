@@ -77,8 +77,8 @@
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
 <script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
-var dnsconfig = {$dnsconfig|json_encode|raw};
-var recordLine = {$recordLine|json_encode|raw};
+var dnsconfig = {:json_encode($dnsconfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var recordLine = {:json_encode($recordLine, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 var domainId = {$domainId};
 var weightList = [];
 var lineList = [];
@@ -107,10 +107,12 @@ $(document).ready(function(){
 			},
 			{
 				field: 'RecordCount',
+				escape: true,
 				title: '记录数量'
 			},
 			{
 				field: 'Open',
+				escape: false,
 				title: '权重配置状态',
 				formatter: function(value, row, index) {
 					if(value == 1){
@@ -122,6 +124,7 @@ $(document).ready(function(){
 			},
 			{
 				field: '',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '';
@@ -129,10 +132,10 @@ $(document).ready(function(){
 						if(row.Type == 'CNAME'){
 							html += '<a class="btn btn-warning btn-xs" title="CNAME类型解析默认必须开权重模式，每次解析应答只返回一条解析结果记录值" disabled>关闭权重</a>&nbsp;&nbsp;';
 						}else{
-							html += '<a href="javascript:setWeightStatus(\''+row.SubDomain+'\', \'0\')" class="btn btn-warning btn-xs">关闭权重</a>&nbsp;&nbsp;';
+							html += '<a href="javascript:setWeightStatus(\''+jsEscape(row.SubDomain)+'\', \'0\')" class="btn btn-warning btn-xs">关闭权重</a>&nbsp;&nbsp;';
 						}
 					}else{
-						html += '<a href="javascript:setWeightStatus(\''+row.SubDomain+'\', \'1\')" class="btn btn-success btn-xs">开启权重</a>&nbsp;&nbsp;';
+						html += '<a href="javascript:setWeightStatus(\''+jsEscape(row.SubDomain)+'\', \'1\')" class="btn btn-success btn-xs">开启权重</a>&nbsp;&nbsp;';
 					}
 					html += '<a href="javascript:editframe('+row.id+')" class="btn btn-primary btn-xs">设置权重</a>';
 					return html;
@@ -156,7 +159,7 @@ function editframe(id){
 			layer.close(ii);
 			if(data.code == 0){
 				$("#modal-store").modal('show');
-				$("#modal-title").html("设置权重 - "+row.SubDomain);
+				$("#modal-title").text("设置权重 - "+row.SubDomain);
 				$("#form-store input[name=subdomain]").val(row.SubDomain);
 				$("#form-store input[name=type]").val(row.Type);
 				if(row.Type == 'CNAME') $("#weight-switch").prop("disabled", true);
@@ -175,13 +178,13 @@ function editframe(id){
 				});
 				$("#line").empty();
 				$.each(lineList, function(i, item){
-					$("#line").append('<option value="'+item.id+'">'+item.name+'</option>');
+					$("#line").append($('<option>').val(item.id).text(item.name));
 				});
 
 				weightList = data.data;
 				changeLine();
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -192,7 +195,7 @@ function changeLine(){
 	$("#weight-list").empty();
 	$.each(weightList, function(i, item){
 		if(item.Line == line){
-			$("#weight-list").append('<tr><td>'+item.Name+'</td><td>'+item.Type+'</td><td>'+item.Value+'</td><td><input type="number" class="form-control" name="weight['+item.RecordId+']" value="'+item.Weight+'" style="width:80px;" min="0" max="100"/></td></tr>');
+			$("#weight-list").append('<tr><td>'+htmlEscape(item.Name)+'</td><td>'+htmlEscape(item.Type)+'</td><td>'+htmlEscape(item.Value)+'</td><td><input type="number" class="form-control" name="weight['+htmlEscape(item.RecordId)+']" value="'+htmlEscape(item.Weight)+'" style="width:80px;" min="0" max="100"/></td></tr>');
 		}
 	});
 	changeOpen();
@@ -218,7 +221,7 @@ function save(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg,{
+				layer.alert(htmlEscape(data.msg),{
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -227,7 +230,7 @@ function save(){
 					searchRefresh();
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -246,7 +249,7 @@ function setWeightStatus(subdomain, status){
 				layer.closeAll();
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	});

@@ -186,8 +186,15 @@ class Cloudflare extends BaseController
     {
         try {
             $context = $this->getCloudflareDomainContext(input('param.id/d'));
-            $hostnameIds = input('post.hostname_ids/s', '');
-            $hostnameIdArray = array_filter(array_map('trim', explode(',', $hostnameIds)));
+            $hostnameIds = input('post.hostname_ids', []);
+            if (is_string($hostnameIds)) $hostnameIds = explode(',', $hostnameIds);
+            if (!is_array($hostnameIds) || count($hostnameIds) > 500) throw new Exception('主机名ID应为不超过500项的数组或逗号分隔字符串');
+            $hostnameIdArray = [];
+            foreach ($hostnameIds as $hostnameId) {
+                if (!is_string($hostnameId) || !preg_match('/\A[a-f0-9-]{32,36}\z/Di', $hostnameId)) throw new Exception('主机名ID格式不正确');
+                $hostnameIdArray[] = $hostnameId;
+            }
+            $hostnameIdArray = array_values(array_unique($hostnameIdArray));
             if (empty($hostnameIdArray)) {
                 throw new Exception('缺少 hostname_ids');
             }

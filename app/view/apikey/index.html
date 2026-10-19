@@ -163,10 +163,10 @@
 {block name="script"}
 <script src="/static/js/layer/layer.js"></script>
 <script>
-var SCOPES = {:json_encode($scopes, JSON_UNESCAPED_UNICODE)};
-var PRESETS = {:json_encode($presets, JSON_UNESCAPED_UNICODE)};
-var SITE = {:json_encode($siteurl)};
-var SETTINGS = {api_key_open: {:json_encode(config_get('api_key_open', '1'))}, api_log: {:json_encode(config_get('api_log', '1'))}, api_ip_source: {:json_encode(config_get('api_ip_source', 'auto'))}};
+var SCOPES = {:json_encode($scopes, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var PRESETS = {:json_encode($presets, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var SITE = {:json_encode($siteurl, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var SETTINGS = {api_key_open: {:json_encode(config_get('api_key_open', '1'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)}, api_log: {:json_encode(config_get('api_log', '1'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)}, api_ip_source: {:json_encode(config_get('api_ip_source', 'auto'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)}};
 var rows = [];
 
 function esc(s) {
@@ -277,9 +277,9 @@ function submitForm() {
 			$('#formModal').modal('hide');
 			load();
 			if (res.secret) showToken(res.keyid, res.secret);
-			else layer.msg(res.msg, {icon: 1});
+			else layer.msg(htmlEscape(res.msg), {icon: 1});
 		} else {
-			layer.alert(res.msg, {icon: 2});
+			layer.alert(htmlEscape(res.msg), {icon: 2});
 		}
 	}, 'json').fail(function() { layer.close(ii); layer.msg('服务器错误', {icon: 2}); });
 	return false;
@@ -294,15 +294,15 @@ function showToken(keyid, secret) {
 }
 function setStatus(id, status, el) {
 	$.post('/apikey/status', {id: id, status: status}, function(res) {
-		if (res.code == 0) { layer.msg(res.msg, {icon: 1, time: 1200}); setTimeout(load, 300); }
-		else { if (el) el.checked = !el.checked; layer.alert(res.msg, {icon: 2}); }
+		if (res.code == 0) { layer.msg(htmlEscape(res.msg), {icon: 1, time: 1200}); setTimeout(load, 300); }
+		else { if (el) el.checked = !el.checked; layer.alert(htmlEscape(res.msg), {icon: 2}); }
 	}, 'json').fail(function() { if (el) el.checked = !el.checked; layer.msg('服务器错误', {icon: 2}); });
 }
 function resetKey(id) {
 	layer.confirm('重置后旧的Secret立即失效（KeyID不变），使用它的程序需要更新。确定重置吗？', {icon: 3, title: '重置Secret', btn: ['重置', '取消']}, function(i) {
 		layer.close(i);
 		$.post('/apikey/reset', {id: id}, function(res) {
-			if (res.code == 0) { load(); showToken(res.keyid, res.secret); } else layer.alert(res.msg, {icon: 2});
+			if (res.code == 0) { load(); showToken(res.keyid, res.secret); } else layer.alert(htmlEscape(res.msg), {icon: 2});
 		}, 'json');
 	});
 }
@@ -310,13 +310,13 @@ function delKey(id) {
 	layer.confirm('删除后使用该密钥的程序将无法调用API，且无法恢复。确定删除吗？', {icon: 3, title: '删除密钥', btn: ['删除', '取消']}, function(i) {
 		layer.close(i);
 		$.post('/apikey/del', {id: id}, function(res) {
-			if (res.code == 0) { layer.msg(res.msg, {icon: 1}); load(); } else layer.alert(res.msg, {icon: 2});
+			if (res.code == 0) { layer.msg(htmlEscape(res.msg), {icon: 1}); load(); } else layer.alert(htmlEscape(res.msg), {icon: 2});
 		}, 'json');
 	});
 }
 function saveSetting() {
 	$.post('/apikey/setting', $('#settingForm').serialize(), function(res) {
-		if (res.code == 0) layer.msg('设置已保存', {icon: 1}); else layer.alert(res.msg, {icon: 2});
+		if (res.code == 0) layer.msg('设置已保存', {icon: 1}); else layer.alert(htmlEscape(res.msg), {icon: 2});
 	}, 'json');
 	return false;
 }

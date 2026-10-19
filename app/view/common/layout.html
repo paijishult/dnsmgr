@@ -2,8 +2,9 @@
 <html lang="zh-cn">
 <head>
   <meta charset="utf-8"/>
+  <meta name="csrf-token" content="{$csrfToken|default=''}">
   <meta name="renderer" content="webkit">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
   <title>{block name="title"}{/block} - 聚合CC-DNS</title>
   <link rel="icon" href="/favicon.ico?v=cc1" sizes="any"/>
@@ -81,8 +82,9 @@
                     <a href="/setpwd" class="btn btn-primary"><i class="fa fa-lock"></i> 修改密码</a>
                   </div>{/if}
                   <div class="pull-right">
-                    <a href="/logout" class="btn btn-danger"><i class="fa fa-sign-out"></i> 退出登录</a>
+                    <button type="button" id="logoutButton" class="btn btn-danger"><i class="fa fa-sign-out"></i> 退出登录</button>
                   </div>
+                  <p id="logoutMessage" class="text-danger" role="status" aria-live="polite" style="clear:both;margin:8px 0 0"></p>
                 </li>
               </ul>
             </li>
@@ -113,6 +115,9 @@
           <li class="{:checkIfActive('domain,record,record_log,record_batch_add,record_import,domain_add,weight,record_batch_add2,record_batch_edit2,expire_notice,smartparse')}">
             <a href="/domain"><i class="fa fa-list-ul fa-fw"></i> <span>域名管理</span></a>
           </li>
+          {if request()->user['type'] == 'user' && checkPermission(1)}<li class="{if request()->controller() == 'Batch'}active{/if}">
+            <a href="/batch"><i class="fa fa-tasks fa-fw"></i> <span>后台批量任务</span></a>
+          </li>{/if}
           {if request()->user['level'] eq 2}
           <li class="{:checkIfActive('account,account_add')}">
             <a href="/account"><i class="fa fa-lock fa-fw"></i> <span>域名账户</span></a>
@@ -261,6 +266,17 @@
 <script src="/static/js/app.js?v={:config('app.version')}"></script>
 <script src="/static/js/zn.js?v={:config('app.version')}"></script>
 <script>
+  $('#logoutButton').on('click', function () {
+    var button = $(this).prop('disabled', true);
+    $('#logoutMessage').empty();
+    $.ajax({
+      url: '/logout', type: 'POST', dataType: 'json'}).done(function (response) {
+      if (response.code === 0) { window.location.href = '/login'; return; }
+      $('#logoutMessage').text(response.msg || '退出登录失败，请重试');
+    }).fail(function (xhr) {
+      $('#logoutMessage').text(xhr.responseJSON && xhr.responseJSON.msg || '请求失败，请重试');
+    }).always(function () { button.prop('disabled', false); });
+  });
   // 移动端：阻止从屏幕左边缘开始的手势触发浏览器返回
   document.addEventListener('pointerdown', function(e) {
     if (e.pointerType !== 'touch' || e.target.closest('table, input, textarea, select, a, button')) return;

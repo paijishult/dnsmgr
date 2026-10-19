@@ -45,10 +45,12 @@ $(document).ready(function(){
 		columns: [
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID'
 			},
 			{
 				field: 'uid',
+				escape: false,
 				title: 'UID',
 				formatter: function(value, row, index) {
 					return value>0?'<a href="/user?kw='+value+'" target="_blank">'+value+'</a>':'管理员';
@@ -71,6 +73,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'addtime',
+				escape: true,
 				title: '时间'
 			}
 		],

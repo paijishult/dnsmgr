@@ -11,6 +11,9 @@ RUN set -eux; \
       curl \
       nginx \
       ca-certificates \
+      c-ares \
+      brotli-libs \
+      zstd-libs \
       php83 \
       php83-ctype \
       php83-curl \
@@ -59,6 +62,9 @@ RUN set -eux; \
       binutils \
       openssl-dev \
       curl-dev \
+      c-ares-dev \
+      brotli-dev \
+      zstd-dev \
       pcre2-dev; \
     \
     curl -fsSL \
@@ -73,6 +79,8 @@ RUN set -eux; \
     phpize83; \
     ./configure \
         --with-php-config=/usr/bin/php-config83 \
+        --with-openssl-dir=/usr \
+        --enable-mysqlnd \
         --enable-sockets \
         --enable-swoole-curl \
         --enable-cares \
@@ -85,6 +93,8 @@ RUN set -eux; \
     cd /; \
     rm -rf /usr/src/swoole /tmp/swoole.tgz; \
     apk del .swoole-build-deps; \
+    php83 --ri swoole; \
+    php83 -r 'foreach (["swoole", "curl", "pdo_mysql", "openssl", "ssh2"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing extension: $extension\n"); exit(1); } }'; \
     rm -rf /var/cache/apk/* /tmp/*
 
 # Configure nginx - http
@@ -108,7 +118,7 @@ RUN composer install -d /usr/src/www --no-interaction --no-dev --no-autoloader -
 # Add application（使用本仓库源码构建）
 COPY . /usr/src/www
 RUN composer dump-autoload -d /usr/src/www --no-dev --optimize --no-interaction \
-    && rm -rf /usr/src/www/.github /usr/src/www/.git /usr/local/bin/composer
+    && rm -rf /usr/src/www/.github /usr/src/www/.git /usr/src/www/tests /usr/local/bin/composer
 
 RUN adduser -D -s /sbin/nologin -g www www && chown -R www:www /usr/src/www /var/lib/nginx /var/log/nginx
 

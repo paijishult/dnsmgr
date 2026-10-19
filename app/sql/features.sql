@@ -1,0 +1,41 @@
+CREATE TABLE IF NOT EXISTS `dnsmgr_dns_snapshot` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `did` int unsigned NOT NULL,
+  `uid` int unsigned NOT NULL DEFAULT 0,
+  `domain` varchar(253) NOT NULL,
+  `aid` int unsigned NOT NULL,
+  `thirdid` varchar(255) NOT NULL DEFAULT '',
+  `label` varchar(120) NOT NULL,
+  `record_count` int unsigned NOT NULL,
+  `records` longtext NOT NULL,
+  `checksum` char(64) NOT NULL,
+  `addtime` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `did_id` (`did`,`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS `dnsmgr_batch_task` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `uid` int unsigned NOT NULL,
+  `kid` int unsigned NOT NULL DEFAULT 0,
+  `did` int unsigned NOT NULL,
+  `actor` char(64) NOT NULL,
+  `name` varchar(120) NOT NULL,
+  `identity` text NOT NULL,
+  `plan` longtext NOT NULL,
+  `results` mediumtext NOT NULL,
+  `total` int unsigned NOT NULL,
+  `completed` int unsigned NOT NULL DEFAULT 0,
+  `status` tinyint unsigned NOT NULL DEFAULT 0,
+  `cancel_requested` tinyint unsigned NOT NULL DEFAULT 0,
+  `attempts` int unsigned NOT NULL DEFAULT 0,
+  `error` varchar(1000) DEFAULT NULL,
+  `snapshot_id` bigint unsigned DEFAULT NULL,
+  `addtime` datetime NOT NULL,
+  `updatetime` datetime NOT NULL,
+  `expiretime` datetime NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `status_id` (`status`,`id`),
+  KEY `owner` (`uid`,`kid`,`id`),
+  KEY `did` (`did`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

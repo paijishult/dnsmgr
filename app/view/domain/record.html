@@ -192,7 +192,7 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
   </div>
   <div class="btn-group" role="group">
 	<button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">日志 <span class="caret"></span></button>
-	<ul class="dropdown-menu"><li><a href="/log?domain={$domainName}">本站日志</a></li>{if $dnsconfig.log}<li><a href="/record/log/{$domainId}">域名日志</a></li>{/if}</ul>
+	<ul class="dropdown-menu"><li><a href="/log?domain={$domainName}">本站日志</a></li><li><a href="/record/history/{$domainId}">变更历史与快照</a></li>{if $dnsconfig.log}<li><a href="/record/log/{$domainId}">域名日志</a></li>{/if}</ul>
   </div>
   <a href="javascript:advanceSearch()" class="btn"><i class="fa fa-angle-down"></i> 高级搜索</a>
 </div>
@@ -249,9 +249,10 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
 <script src="/static/js/xlsx.full.min.js"></script>
 <script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
-var recordLine = {$recordLine|json_encode|raw};
-var dnsconfig = {$dnsconfig|json_encode|raw};
-var defaultLine = recordLine[0].id;
+var recordLine = {:json_encode($recordLine, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var currentDomainName = {:json_encode($domainName, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var dnsconfig = {:json_encode($dnsconfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var defaultLine = recordLine.length ? recordLine[0].id : 'default';
 var sidePagination = dnsconfig.page ? 'client' : 'server';
 var showWeight = dnsconfig.weight;
 $(document).ready(function(){
@@ -275,6 +276,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'RecordId',
+				escape: true,
 				visible: false,
 				title: '记录ID'
 			},
@@ -286,12 +288,13 @@ $(document).ready(function(){
 		   },
 			{
 				field: 'Type',
+				escape: false,
 				title: '记录类型',
 				sortable: dnsconfig.sort,
 				formatter: function(value, row, index) {
 					if(value == 'REDIRECT_URL') return '显性URL';
 					if(value == 'FORWARD_URL') return '隐性URL';
-					return value;
+					return htmlEscape(value);
 				}
 			},
 			{
@@ -302,14 +305,15 @@ $(document).ready(function(){
 			},
 			{
 			   field: 'Value',
+			   escape: false,
 			   title: '记录值',
 			   sortable: dnsconfig.sort,
 			   formatter: function(value, row, index) {
-				   var copyId = 'copy-value-' + row.RecordId;
+				   var copyId = 'copy-value-' + index;
 				   if(row.Type == 'MX' && dnsconfig.type!='huawei') {
 					   return '<span id="'+copyId+'" data-value="'+htmlEscape(value)+'">'+htmlEscape(value)+'</span>'
 						   + '<a href="javascript:void(0);" title="复制记录值" onclick="copyToClipboard(null, \'#'+copyId+'\')" style="padding-left:6px;"><i class=\"fa fa-copy\"></i></a>'
-						   + '<span class="mx-priority"> | '+row.MX+'</span>';
+						   + '<span class="mx-priority"> | '+htmlEscape(row.MX)+'</span>';
 				   } else {
 					   return '<span id="'+copyId+'" data-value="'+htmlEscape(value)+'">'+htmlEscape(value)+'</span>'
 						   + '<a href="javascript:void(0);" title="复制记录值" onclick="copyToClipboard(null, \'#'+copyId+'\')" style="padding-left:6px;"><i class=\"fa fa-copy\"></i></a>';
@@ -318,10 +322,12 @@ $(document).ready(function(){
 		   },
 			{
 				field: 'TTL',
+				escape: true,
 				title: 'TTL'
 			},
 			{
 				field: 'Weight',
+				escape: true,
 				visible: showWeight,
 				title: '权重'
 			},
@@ -333,12 +339,14 @@ $(document).ready(function(){
 			},
 			{
 				field: 'UpdateTime',
+				escape: true,
 				visible: false,
 				title: '最后更新时间',
 				sortable: dnsconfig.sort
 			},
 			{
 				field: 'Status',
+				escape: false,
 				title: '状态',
 				formatter: function(value, row, index) {
 					if(value == '1'){
@@ -350,30 +358,31 @@ $(document).ready(function(){
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					if((row.Type == 'NS' || row.Type == 'SOA') && row.Name == '@') return '-';
-					var html = '<a href="javascript:editframe(\''+row.RecordId+'\')" class="btn btn-primary btn-xs">修改</a>&nbsp;&nbsp;';
+					var html = '<a href="javascript:editframe(\''+jsEscape(row.RecordId)+'\')" class="btn btn-primary btn-xs">修改</a>&nbsp;&nbsp;';
 					if(dnsconfig.status){
 						if(row.Status == '1'){
-							html += '<a href="javascript:setStatus(\''+row.RecordId+'\', \'0\')" class="btn btn-warning btn-xs">暂停</a>&nbsp;&nbsp;';
+							html += '<a href="javascript:setStatus(\''+jsEscape(row.RecordId)+'\', \'0\')" class="btn btn-warning btn-xs">暂停</a>&nbsp;&nbsp;';
 						}else{
-							html += '<a href="javascript:setStatus(\''+row.RecordId+'\', \'1\')" class="btn btn-success btn-xs">启用</a>&nbsp;&nbsp;';
+							html += '<a href="javascript:setStatus(\''+jsEscape(row.RecordId)+'\', \'1\')" class="btn btn-success btn-xs">启用</a>&nbsp;&nbsp;';
 						}
 					}
-					html += '<a href="javascript:delItem(\''+row.RecordId+'\')" class="btn btn-danger btn-xs">删除</a>&nbsp;&nbsp;';
+					html += '<a href="javascript:delItem(\''+jsEscape(row.RecordId)+'\')" class="btn btn-danger btn-xs">删除</a>&nbsp;&nbsp;';
 					if(dnsconfig.remark == 1){
-						html += '<a href="javascript:setRemark(\''+row.RecordId+'\')" class="btn btn-info btn-xs">备注</a>&nbsp;&nbsp;';
+						html += '<a href="javascript:setRemark(\''+jsEscape(row.RecordId)+'\')" class="btn btn-info btn-xs">备注</a>&nbsp;&nbsp;';
 					}
 					var supportedTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'SRV', 'CAA', 'PTR', 'LOC', 'LUA', 'REDIRECT_URL', 'FORWARD_URL'];
 					if(supportedTypes.includes(row.Type)){
-						html += '<a href="javascript:checkRecord(\''+row.RecordId+'\')" class="btn btn-success btn-xs" title="检测解析生效"><i class="fa fa-check-circle-o"></i></a>&nbsp;&nbsp;';
+						html += '<a href="javascript:checkRecord(\''+jsEscape(row.RecordId)+'\')" class="btn btn-success btn-xs" title="检测解析生效"><i class="fa fa-check-circle-o"></i></a>&nbsp;&nbsp;';
 					}
 					if(row.Type == 'A' || row.Type == 'CNAME' || row.Type == 'AAAA' || row.Type == 'REDIRECT_URL' || row.Type == 'FORWARD_URL'){
-						if(row.Name === "@") var domain = "{$domainName}";
-						else var domain = row.Name + ".{$domainName}";
+						if(row.Name === "@") var domain = currentDomainName;
+						else var domain = row.Name + "." + currentDomainName;
 						domain = domain.replace(/\*/g, 'www');
-						html += '<a href="http://' + domain + '" target="_blank" title="访问域名" class="btn btn-default btn-xs"><i class="fa fa-external-link"></i></a>';
+						html += '<a href="http://' + htmlEscape(domain) + '" target="_blank" rel="noopener noreferrer" title="访问域名" class="btn btn-default btn-xs"><i class="fa fa-external-link"></i></a>';
 					}
 					return html;
 				}
@@ -407,7 +416,7 @@ $(document).ready(function(){
 
 	$.each(recordLine, function(index, item){
 		if(item.parent == null){
-			$("#searchToolbar select[name='line']").append('<option value="'+item.id+'">'+item.name+'</option>');
+			$("#searchToolbar select[name='line']").append($('<option>').val(item.id).text(item.name));
 		}
 	})
 
@@ -418,7 +427,7 @@ function initLine(option, elem){
 	$("#"+elem).empty();
 	$.each(recordLine, function(index, item){
 		if(item.parent == null){
-			option += '<option value="'+item.id+'">'+item.name+'</option>';
+			option += '<option value="'+htmlEscape(item.id)+'">'+htmlEscape(item.name)+'</option>';
 		}
 	})
 	$("#"+elem).append('<select name="line" class="form-control" onchange="changeLine(this, \''+elem+'\')">'+option+'</select>');
@@ -437,7 +446,7 @@ function changeLine(obj, elem){
 	if(tempLine.length > 0){
 		var option = line.substr(0,2) == 'N.' ? '' : '<option value="'+line+'">子集线路（非必填）</option>';
 		$.each(tempLine, function(index, item){
-			option += '<option value="'+item.id+'">'+item.name+'</option>';
+			option += '<option value="'+htmlEscape(item.id)+'">'+htmlEscape(item.name)+'</option>';
 		})
 		$("#"+elem).append('<select name="line" class="form-control" onchange="changeLine(this, \''+elem+'\')">'+option+'</select>');
 	}
@@ -496,7 +505,7 @@ function save(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg,{
+				layer.alert(htmlEscape(data.msg),{
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -505,7 +514,7 @@ function save(){
 					searchRefresh();
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -525,7 +534,7 @@ function setStatus(recordid, status){
 				layer.msg(status=='1'?'开启成功':'暂停成功', {icon: 1, time:500});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	});
@@ -546,7 +555,7 @@ function delItem(recordid) {
 				layer.msg('删除成功', {icon: 1, time:800});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	  });
@@ -576,7 +585,7 @@ function setRemark(recordid) {
 						layer.msg('保存成功', {icon: 1, time:800});
 						searchRefresh();
 					}else{
-						layer.alert(data.msg, {icon:2});
+						layer.alert(htmlEscape(data.msg), {icon:2});
 					}
 				},
 				error:function(data){
@@ -676,7 +685,7 @@ function exportExcel(){
 				}, 300);
 			}catch(e){
 				layer.close(progressLayer);
-				layer.alert('生成Excel失败：' + e.message, {icon: 2});
+				layer.alert('生成Excel失败：' + htmlEscape(e.message), {icon: 2});
 			}finally{
 				excelExporting = false;
 			}
@@ -735,7 +744,7 @@ function downloadRecordExcel(records){
 		return {wch: 12};
 	});
 	XLSX.utils.book_append_sheet(workbook, worksheet, '解析记录');
-	var filename = '{$domainName}_解析记录_' + new Date().toISOString().slice(0, 10) + '.xlsx';
+	var filename = currentDomainName + '_解析记录_' + new Date().toISOString().slice(0, 10) + '.xlsx';
 	XLSX.writeFile(workbook, filename, {bookType: 'xlsx', compression: true});
 }
 function operation(action){
@@ -769,10 +778,10 @@ function operation(action){
 			layer.close(ii);
 			if(data.code == 0){
 				layer.closeAll();
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	  });
@@ -804,7 +813,7 @@ function batch_save(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg,{
+				layer.alert(htmlEscape(data.msg),{
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -813,7 +822,7 @@ function batch_save(){
 					searchRefresh();
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -834,7 +843,7 @@ function batch_save_line(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg,{
+				layer.alert(htmlEscape(data.msg),{
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -843,7 +852,7 @@ function batch_save_line(){
 					searchRefresh();
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -866,7 +875,7 @@ function batch_edit_remark(rows) {
 				dataType : 'json',
 				success : function(data) {
 					layer.close(ii);
-					layer.alert(data.msg,{
+					layer.alert(htmlEscape(data.msg),{
 						icon: 1,
 						closeBtn: false
 					}, function(){
@@ -902,7 +911,7 @@ function batch_edit_group(rows) {
 					dataType: 'json',
 					success: function(data){
 						layer.close(ii);
-						layer.alert(data.msg, {icon: data.code==0?1:2, closeBtn: false}, function(){
+						layer.alert(htmlEscape(data.msg), {icon: data.code==0?1:2, closeBtn: false}, function(){
 							layer.closeAll();
 							if(data.code == 0) searchRefresh();
 							groupLoaded = false;
@@ -927,11 +936,11 @@ function batch_edit_group(rows) {
 			if(res.code == 0){
 				var options = '';
 				$.each(res.data, function(i, item){
-					options += '<option value="'+item.id+'">'+item.name+'</option>';
+					options += '<option value="'+htmlEscape(item.id)+'">'+htmlEscape(item.name)+'</option>';
 				});
 				showDialog(options);
 			}else{
-				layer.alert(res.msg, {icon: 2});
+				layer.alert(htmlEscape(res.msg), {icon: 2});
 			}
 		}, 'json');
 	}
@@ -944,7 +953,7 @@ function loadRecordGroups(){
 		if(res.code == 0){
 			$('#groupid').empty();
 			$.each(res.data, function(i, item){
-				$('#groupid').append('<option value="'+item.id+'">'+item.name+'</option>');
+				$('#groupid').append($('<option>').val(item.id).text(item.name));
 			});
 			updateToolbar();
 		}
@@ -999,7 +1008,7 @@ function checkRecord(recordid) {
 				content += '</div>';
 				layer.alert(content, {title: 'DNS解析检测', area: ['450px'], shadeClose: true});
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		},
 		error: function(){
@@ -1035,7 +1044,7 @@ function copyToClipboard(text, selector) {
 }
 // 工具函数：HTML转义，防止XSS
 function htmlEscape(str) {
-    return String(str)
+    return String(str == null ? '' : str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')

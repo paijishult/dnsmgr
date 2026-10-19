@@ -25,7 +25,7 @@ Route::any('/login', 'auth/login')->middleware(SessionInit::class)
 ->middleware(ViewOutput::class);
 Route::get('/verifycode', 'auth/verifycode')->middleware(SessionInit::class);
 Route::post('/auth/totp', 'auth/totp')->middleware(SessionInit::class);
-Route::get('/logout', 'auth/logout');
+Route::post('/logout', 'auth/logout')->middleware(SessionInit::class);
 Route::any('/quicklogin', 'auth/quicklogin');
 Route::any('/dmtask/status', 'dmonitor/status');
 Route::any('/optimizeip/status', 'optimizeip/status');
@@ -35,9 +35,9 @@ Route::any('/qqbot/webhook', 'qqbot/webhook');
 Route::group(function () {
     Route::any('/', 'index/index');
     Route::post('/changeskin', 'index/changeskin');
-    Route::get('/cleancache', 'index/cleancache');
+    Route::post('/cleancache', 'index/cleancache');
     Route::any('/setpwd', 'index/setpwd');
-    Route::any('/totp/:action', 'index/totp');
+    Route::post('/totp/:action', 'index/totp');
     Route::get('/test', 'index/test');
 
     Route::post('/user/data', 'user/user_data');
@@ -120,6 +120,17 @@ Route::group(function () {
     Route::get('/record/:id', 'domain/record');
     Route::get('/record/smartparse', 'domain/smartparse');
     Route::post('/record/quickinfo/:id', 'domain/quickinfo');
+    Route::get('/record/history/:id', 'domain/record_history');
+    Route::post('/record/history/data/:id', 'domain/record_history_data');
+    Route::post('/record/snapshot/:id', 'domain/record_snapshot');
+    Route::post('/record/preview/:id', 'domain/record_preview');
+    Route::post('/record/apply/:id', 'domain/record_apply');
+    Route::post('/record/rollback/preview/:id', 'domain/record_rollback_preview');
+    Route::get('/batch', 'batch/index');
+    Route::post('/batch/data', 'batch/data');
+    Route::post('/batch/details', 'batch/details');
+    Route::post('/batch/enqueue', 'batch/enqueue');
+    Route::post('/batch/task/:action', 'batch/operation');
 
     Route::get('/dmonitor/overview', 'dmonitor/overview');
     Route::post('/dmonitor/task/data', 'dmonitor/task_data');
@@ -227,6 +238,16 @@ Route::group('api', function () {
     Route::post('/record/alias/:id', 'domain/alias')->option(['scope' => ['list' => 'domain:read', '*' => 'domain:write']]);
 
     // Cloudflare 增强（SaaS自定义主机名 / Tunnel）
+    Route::post('/record/history/data/:id', 'domain/record_history_data')->option(['scope' => 'record:read']);
+    Route::post('/record/snapshot/:id', 'domain/record_snapshot')->option(['scope' => 'record:write']);
+    Route::post('/record/preview/:id', 'domain/record_preview')->option(['scope' => 'record:read']);
+    Route::post('/record/apply/:id', 'domain/record_apply')->option(['scope' => 'record:write']);
+    Route::post('/record/rollback/preview/:id', 'domain/record_rollback_preview')->option(['scope' => 'record:write']);
+    Route::post('/batch/data', 'batch/data')->option(['scope' => 'record:read']);
+    Route::post('/batch/details', 'batch/details')->option(['scope' => 'record:read']);
+    Route::post('/batch/enqueue', 'batch/enqueue')->option(['scope' => 'record:write']);
+    Route::post('/batch/task/:action', 'batch/operation')->option(['scope' => 'record:write']);
+
     Route::post('/cloudflare/hostnames/data/:id', 'cloudflare/hostnames_data')->option(['scope' => 'cloudflare:read']);
     Route::post('/cloudflare/hostnames/txttargets/:id', 'cloudflare/hostnames_txt_targets')->option(['scope' => 'cloudflare:read']);
     Route::post('/cloudflare/hostnames/add/:id', 'cloudflare/hostnames_add')->option(['scope' => 'cloudflare:write']);

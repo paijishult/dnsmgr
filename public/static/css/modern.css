@@ -285,6 +285,11 @@ td .label, td .badge { font-weight: 600; }
 .dropdown-menu > li > a:hover, .dropdown-menu > li > a:focus { background: var(--zn-accent); color: #fff; }
 .dropdown-menu > li > a.text-danger:hover { background: var(--zn-red-fill); color: #fff !important; }
 .dropdown-menu .divider { margin: 5px 6px; background: var(--zn-line-soft); }
+.zn-floating-dropdown { max-width: calc(100vw - 16px); overscroll-behavior: contain; animation: none !important; }
+@media (max-width: 767px) {
+  .box-header.with-border > .box-tools { position: static; float: none !important; margin-top: 10px; }
+  .box-header.with-border > .box-tools .btn { margin-bottom: 4px; }
+}
 .tooltip-inner { border-radius: 8px; background: rgba(29, 29, 31, .92); padding: 5px 9px; }
 .popover { border: 0; border-radius: var(--zn-radius); box-shadow: var(--zn-shadow-pop); }
 

@@ -164,6 +164,7 @@ class System extends BaseController
         if (config_get('cron_type', '0') != '1' || empty($cron_key)) exit('未开启当前方式');
         if (!is_string($key) || !hash_equals((string)$cron_key, $key)) exit('访问密钥错误');
 
+        (new \app\service\BatchTaskService())->execute();
         (new ScheduleService())->execute();
         $res = (new OptimizeService())->execute();
         if (!$res) {

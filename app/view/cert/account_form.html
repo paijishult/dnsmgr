@@ -186,9 +186,9 @@
 <script src="/static/js/layer/layer.js"></script>
 <script src="/static/js/bootstrapValidator.min.js"></script>
 <script>
-var info = {$info|json_encode|raw};
-var typeList = {$typeList|json_encode|raw};
-var classList = {$classList|json_encode|raw};
+var info = {:json_encode($info, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var typeList = {:json_encode($typeList, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var classList = {:json_encode($classList, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 new Vue({
     el: '#app',
     data: {
@@ -328,7 +328,7 @@ new Vue({
                 success: function(data) {
                     layer.close(loading);
                     if(data.code == 0){
-                        layer.alert(data.msg, {icon: 1}, function(){
+                        layer.alert(htmlEscape(data.msg), {icon: 1}, function(){
                             if(data.msg.indexOf('自动部署账户')>0){
                                 window.location.href = '/cert/deployaccount';
                             }else{
@@ -336,7 +336,7 @@ new Vue({
                             }
                         });
                     }else{
-                        layer.alert(data.msg, {icon: 2});
+                        layer.alert(htmlEscape(data.msg), {icon: 2});
                     }
                 },
                 error: function(data){

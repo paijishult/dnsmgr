@@ -14,6 +14,10 @@ class CertOrderService
 {
     private static $retry_interval = [60, 180, 300, 600, 600];
 
+    private $db;
+    private $executionLock;
+    private $lockDepth = 0;
+    private ?\Closure $authorization;
     private $client;
     private $aid;
     private $atype;
@@ -25,14 +29,23 @@ class CertOrderService
     private $domainsAliasList = [];
 
     // 订单状态：0:待提交 1:待验证 2:正在验证 3:已签发 4:已吊销 -1:购买证书失败 -2:创建订单失败 -3:添加DNS失败 -4:验证DNS失败 -5:验证订单失败 -6:订单验证未通过 -7:签发证书失败
-    public function __construct($oid)
+    public function __construct($oid, ?\Closure $authorization = null)
     {
-        $order = Db::name('cert_order')->where('id', $oid)->find();
+        $this->authorization = $authorization;
+        $this->db = TaskLockService::connection();
+        $this->loadOrder($oid);
+    }
+
+    private function loadOrder($oid)
+    {
+        $order = $this->db->name('cert_order')->where('id', $oid)->find();
         if (!$order) throw new Exception('该证书订单不存在', 102);
         $this->order = $order;
+        $this->cnameDomainList = [];
+        $this->domainsAliasList = [];
 
         $this->aid = $order['aid'];
-        $account = Db::name('cert_account')->where('id', $this->aid)->find();
+        $account = $this->db->name('cert_account')->where('id', $this->aid)->find();
         if (!$account) throw new Exception('该证书账户不存在', 102);
         $config = json_decode($account['config'], true);
         $ext = $account['ext'] ? json_decode($account['ext'], true) : null;
@@ -40,7 +53,7 @@ class CertOrderService
         $this->client = CertHelper::getModel2($account['type'], $config, $ext);
         if (!$this->client) throw new Exception('该证书类型不存在', 102);
 
-        $domainList = Db::name('cert_domain')->where('oid', $oid)->order('sort', 'asc')->column('domain');
+        $domainList = $this->db->name('cert_domain')->where('oid', $oid)->order('sort', 'asc')->column('domain');
         if (!$domainList) throw new Exception('该证书订单没有绑定域名', 102);
         $this->domainList = $domainList;
         $this->info = $order['info'] ? json_decode($order['info'], true) : null;
@@ -50,58 +63,62 @@ class CertOrderService
     //执行证书申请
     public function process($isManual = false)
     {
-        if ($this->order['status'] >= 3) return 3;
-        if ($this->order['retry2'] >= 3 && !$isManual) {
-            throw new Exception('已超出最大重试次数('.$this->order['error'].')', 103);
-        }
-        if ($this->order['status'] != 1 && $this->order['status'] != 2 && $this->order['retry'] >= 3 && !$isManual) {
-            if ($this->order['status'] == -2 || $this->order['status'] == -5 || $this->order['status'] == -6 || $this->order['status'] == -7) {
-                $this->cancel();
-                if($this->order['status'] <= -5) $this->delDns();
-                Db::name('cert_order')->where('id', $this->order['id'])->data(['status' => 0, 'retry' => 0, 'retrytime' => null, 'updatetime' => date('Y-m-d H:i:s')])->inc('retry2')->update();
-                $this->order['status'] = 0;
-                $this->order['retry'] = 0;
-            } else {
-                throw new Exception('已超出最大重试次数('.$this->order['error'].')', 103);
-            }
-        }
-
-        if (empty($this->atype) || !isset(CertHelper::$cert_config[$this->atype])) {
-            throw new Exception('该证书类型不存在', 102);
-        }
-        $cname = CertHelper::$cert_config[$this->atype]['cname'] ?? false;
-        foreach($this->domainList as $domain){
-            $mainDomain = getMainDomain($domain);
-            $drow = Db::name('domain')->where('name', $mainDomain)->find();
-            if (!$drow && preg_match('/^xn--/', $mainDomain)) {
-                $drow = Db::name('domain')->where('name', idn_to_utf8($mainDomain))->find();
-            }
-            if (!$drow) {
-                $drow = Db::name('domain_alias')->alias('A')->join('domain B', 'A.did = B.id')->where('A.name', $mainDomain)->field('A.name as alias,B.name as maindomain')->find();
-                if ($drow) {
-                    $this->domainsAliasList[$drow['alias']] = $drow['maindomain'];
-                }
-            }
-            if (!$drow) {
-                if (substr($domain, 0, 2) == '*.') $domain = substr($domain, 2);
-                $cname_row = Db::name('cert_cname')->where('domain', $domain)->where('status', 1)->find();
-                if (!$cname || !$cname_row) {
-                    $errmsg = '域名'.$domain.'未在本系统添加';
-                    Db::name('cert_order')->where('id', $this->order['id'])->update(['error' => $errmsg]);
-                    throw new Exception($errmsg, 103);
-                } else {
-                    $this->cnameDomainList[] = $cname_row['id'];
-                }
-            }
-        }
-
         $this->lockOrder();
         try {
+            if ((int)$this->order['status'] === 3) return 3;
+            if ((int)$this->order['status'] === 4) throw new Exception('证书已吊销', 102);
+            if (!$isManual && !empty($this->order['retrytime']) && strtotime($this->order['retrytime']) > time()) throw new Exception('尚未到达重试时间', 102);
+            if ($this->order['retry2'] >= 3 && !$isManual) {
+                throw new Exception('已超出最大重试次数('.$this->order['error'].')', 103);
+            }
+            if ($this->order['status'] != 1 && $this->order['status'] != 2 && $this->order['retry'] >= 3 && !$isManual) {
+                if ($this->order['status'] == -2 || $this->order['status'] == -5 || $this->order['status'] == -6 || $this->order['status'] == -7) {
+                    $this->cancel();
+                    if($this->order['status'] <= -5) $this->delDns();
+                    $this->db->name('cert_order')->where('id', $this->order['id'])->data(['status' => 0, 'retry' => 0, 'retrytime' => null, 'updatetime' => date('Y-m-d H:i:s')])->inc('retry2')->update();
+                    $this->order['status'] = 0;
+                    $this->order['retry'] = 0;
+                } else {
+                    throw new Exception('已超出最大重试次数('.$this->order['error'].')', 103);
+                }
+            }
+
+            if (empty($this->atype) || !isset(CertHelper::$cert_config[$this->atype])) {
+                throw new Exception('该证书类型不存在', 102);
+            }
+            $cname = CertHelper::$cert_config[$this->atype]['cname'] ?? false;
+            foreach($this->domainList as $domain){
+                $mainDomain = getMainDomain($domain);
+                $drow = $this->db->name('domain')->where('name', $mainDomain)->find();
+                if (!$drow && preg_match('/^xn--/', $mainDomain)) {
+                    $drow = $this->db->name('domain')->where('name', idn_to_utf8($mainDomain))->find();
+                }
+                if (!$drow) {
+                    $drow = $this->db->name('domain_alias')->alias('A')->join('domain B', 'A.did = B.id')->where('A.name', $mainDomain)->field('A.name as alias,B.name as maindomain')->find();
+                    if ($drow) {
+                        $this->domainsAliasList[$drow['alias']] = $drow['maindomain'];
+                    }
+                }
+                if (!$drow) {
+                    if (substr($domain, 0, 2) == '*.') $domain = substr($domain, 2);
+                    $cname_row = $this->db->name('cert_cname')->where('domain', $domain)->where('status', 1)->find();
+                    if (!$cname || !$cname_row) {
+                        $errmsg = '域名'.$domain.'未在本系统添加';
+                        $this->db->name('cert_order')->where('id', $this->order['id'])->update(['error' => $errmsg]);
+                        throw new Exception($errmsg, 103);
+                    } else {
+                        $this->cnameDomainList[] = $cname_row['id'];
+                    }
+                }
+            }
             return $this->processOrder($isManual);
         } finally {
-            $this->unlockOrder();
-            if (($this->order['status'] == -2 || $this->order['status'] == -5 || $this->order['status'] == -6 || $this->order['status'] == -7) && $this->order['retry'] >= 3) {
-                Db::name('cert_order')->where('id', $this->order['id'])->data(['retrytime' => date('Y-m-d H:i:s', time() + 3600)])->update();
+            try {
+                if (($this->order['status'] == -2 || $this->order['status'] == -5 || $this->order['status'] == -6 || $this->order['status'] == -7) && $this->order['retry'] >= 3) {
+                    $this->db->name('cert_order')->where('id', $this->order['id'])->update(['retrytime' => date('Y-m-d H:i:s', time() + 3600)]);
+                }
+            } finally {
+                $this->unlockOrder();
             }
         }
     }
@@ -132,7 +149,7 @@ class CertOrderService
             $this->addDns();
             $this->saveLog('添加DNS记录成功，请等待生效后进行验证...');
             if (CertHelper::$cert_config[$this->atype]['cname']) {
-                Db::name('cert_order')->where('id', $this->order['id'])->update(['retrytime' => date('Y-m-d H:i:s', time() + 180)]);
+                $this->db->name('cert_order')->where('id', $this->order['id'])->update(['retrytime' => date('Y-m-d H:i:s', time() + 180)]);
             }
             return 1;
         }
@@ -158,31 +175,43 @@ class CertOrderService
         $this->delDns();
         $this->resetRetry2();
         $this->saveLog('[Success] 证书签发成功');
-        Db::name('cert_deploy')->where('oid', $this->order['id'])->data(['status' => 0, 'retry' => 0, 'retrytime' => null, 'issend' => 0])->update();
+        $this->db->name('cert_deploy')->where('oid', $this->order['id'])->data(['status' => 0, 'retry' => 0, 'retrytime' => null, 'issend' => 0])->update();
         return 3;
     }
 
     private function lockOrder()
     {
-        Db::startTrans();
+        if ($this->lockDepth > 0) { $this->lockDepth++; return; }
+        $this->executionLock = new TaskLockService($this->db, 'cert-order:' . (int)$this->order['id']);
+        $this->executionLock->acquire();
         try {
-            $isLock = Db::name('cert_order')->where('id', $this->order['id'])->lock(true)->value('islock');
-            if ($isLock == 1 && time() - strtotime($this->order['locktime']) < 3600) {
-                throw new Exception('订单正在处理中，请稍后再试', 102);
-            }
+            $this->db->startTrans();
+            $current = $this->db->name('cert_order')->where('id', $this->order['id'])->lock(true)->find();
+            if (!$current) throw new Exception('该证书订单不存在', 102);
+            // The advisory lock establishes that no live worker owns this task.
+            // Refresh status, retry counters and locktime from the locked row.
+            $this->loadOrder($current['id']);
+            if ($this->authorization) ($this->authorization)((int)$this->order['id'], $this->domainList);
             $update = ['islock' => 1, 'locktime' => date('Y-m-d H:i:s')];
-            if (empty($this->order['processid'])) $this->order['processid'] = $update['processid'] = getSid();
-            Db::name('cert_order')->where('id', $this->order['id'])->update($update);
-            Db::commit();
-        } catch (Exception $e) {
-            Db::rollback();
+            if (empty($current['processid'])) $update['processid'] = getSid();
+            $this->db->name('cert_order')->where('id', $current['id'])->update($update);
+            $this->order = array_merge($this->order, $update);
+            $this->db->commit();
+            $this->lockDepth = 1;
+        } catch (\Throwable $e) {
+            try { $this->db->rollback(); } finally { $this->executionLock->release(); }
             throw $e;
         }
     }
 
     private function unlockOrder()
     {
-        Db::name('cert_order')->where('id', $this->order['id'])->update(['islock' => 0]);
+        if (--$this->lockDepth > 0) return;
+        try {
+            $this->db->name('cert_order')->where('id', $this->order['id'])->update(['islock' => 0]);
+        } finally {
+            $this->executionLock->release();
+        }
     }
 
     private function saveResult($status, $error = null, $retrytime = null)
@@ -192,7 +221,7 @@ class CertOrderService
             $error = mb_strcut($error, 0, 300);
         }
         $update = ['status' => $status, 'error' => $error ? str_replace(["\r", "\n"], '', $error) : null, 'updatetime' => date('Y-m-d H:i:s'), 'retrytime' => $retrytime];
-        $res = Db::name('cert_order')->where('id', $this->order['id'])->data($update);
+        $res = $this->db->name('cert_order')->where('id', $this->order['id'])->data($update);
         if ($status < 0 || $retrytime) {
             $this->order['retry']++;
             $res->inc('retry');
@@ -207,7 +236,7 @@ class CertOrderService
     {
         if ($this->order['retry'] > 0) {
             $this->order['retry'] = 0;
-            Db::name('cert_order')->where('id', $this->order['id'])->update(['retry' => 0, 'retrytime' => null]);
+            $this->db->name('cert_order')->where('id', $this->order['id'])->update(['retry' => 0, 'retrytime' => null]);
         }
     }
 
@@ -215,20 +244,27 @@ class CertOrderService
     {
         if ($this->order['retry2'] > 0) {
             $this->order['retry2'] = 0;
-            Db::name('cert_order')->where('id', $this->order['id'])->update(['retry2' => 0, 'retrytime' => null]);
+            $this->db->name('cert_order')->where('id', $this->order['id'])->update(['retry2' => 0, 'retrytime' => null]);
         }
     }
 
     //重置订单
-    public function reset()
+    public function reset($automatic = false)
     {
-        Db::name('cert_order')->where('id', $this->order['id'])->data(['status' => 0, 'retry' => 0, 'retry2' => 0, 'retrytime' => null, 'processid' => null, 'updatetime' => date('Y-m-d H:i:s'), 'issend' => 0, 'islock' => 0])->update();
-        $file_name = app()->getRuntimePath().'log/'.$this->order['processid'].'.log';
-        if (file_exists($file_name)) unlink($file_name);
-        $this->order['status'] = 0;
-        $this->order['retry'] = 0;
-        $this->order['retry2'] = 0;
-        $this->order['processid'] = null;
+        $this->lockOrder();
+        try {
+            if ($automatic && (empty($this->order['isauto']) || (int)$this->order['status'] !== 3 || strtotime($this->order['expiretime']) >= time() + max(1, (int)config_get('cert_renewdays', 7)) * 86400)) return;
+
+            $this->db->name('cert_order')->where('id', $this->order['id'])->data(['status' => 0, 'retry' => 0, 'retry2' => 0, 'retrytime' => null, 'processid' => null, 'updatetime' => date('Y-m-d H:i:s'), 'issend' => 0])->update();
+            $file_name = app()->getRuntimePath().'log/'.$this->order['processid'].'.log';
+            if (file_exists($file_name)) unlink($file_name);
+            $this->order['status'] = 0;
+            $this->order['retry'] = 0;
+            $this->order['retry2'] = 0;
+            $this->order['processid'] = null;
+        } finally {
+            $this->unlockOrder();
+        }
     }
 
     //购买证书
@@ -236,12 +272,12 @@ class CertOrderService
     {
         try {
             $this->client->buyCert($this->domainList, $this->info);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->saveResult(-1, $e->getMessage());
             throw $e;
         }
         if($this->info){
-            Db::name('cert_order')->where('id', $this->order['id'])->update(['info' => json_encode($this->info)]);
+            $this->db->name('cert_order')->where('id', $this->order['id'])->update(['info' => json_encode($this->info)]);
         }
         $this->order['status'] = 0;
         $this->resetRetry();
@@ -258,16 +294,16 @@ class CertOrderService
             }
             try {
                 $this->dnsList = $this->client->createOrder($this->domainList, $this->info, $this->order['keytype'], $this->order['keysize']);
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 if (strpos($e->getMessage(), 'KeyID header contained an invalid account URL') !== false) {
                     $ext = $this->client->register();
-                    Db::name('cert_account')->where('id', $this->aid)->update(['ext' => json_encode($ext)]);
+                    $this->db->name('cert_account')->where('id', $this->aid)->update(['ext' => json_encode($ext)]);
                     $this->dnsList = $this->client->createOrder($this->domainList, $this->info, $this->order['keytype'], $this->order['keysize']);
                 } else {
                     throw $e;
                 }
             }
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->saveResult(-2, $e->getMessage());
             throw $e;
         }
@@ -282,8 +318,8 @@ class CertOrderService
                 unset($this->dnsList[$alias]);
             }
         }
-        
-        Db::name('cert_order')->where('id', $this->order['id'])->update(['info' => json_encode($this->info), 'dns' => json_encode($this->dnsList)]);
+
+        $this->db->name('cert_order')->where('id', $this->order['id'])->update(['info' => json_encode($this->info), 'dns' => json_encode($this->dnsList)]);
 
         if (!empty($this->dnsList)) {
             $dns_txt = '需验证的DNS记录如下:';
@@ -324,7 +360,7 @@ class CertOrderService
     {
         try {
             $this->client->authOrder($this->domainList, $this->info);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->saveResult(-5, $e->getMessage());
             throw $e;
         }
@@ -337,7 +373,7 @@ class CertOrderService
     {
         try {
             $status = $this->client->getAuthStatus($this->domainList, $this->info);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->saveResult(-6, $e->getMessage());
             throw $e;
         }
@@ -359,12 +395,12 @@ class CertOrderService
     {
         try {
             $result = $this->client->finalizeOrder($this->domainList, $this->info, $this->order['keytype'], $this->order['keysize']);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->saveResult(-7, $e->getMessage());
             throw $e;
         }
         $this->order['issuer'] = $result['issuer'];
-        Db::name('cert_order')->where('id', $this->order['id'])->update(['fullchain' => $result['fullchain'], 'privatekey' => $result['private_key'], 'issuer' => $result['issuer'], 'issuetime' => date('Y-m-d H:i:s', $result['validFrom']), 'expiretime' => date('Y-m-d H:i:s', $result['validTo'])]);
+        $this->db->name('cert_order')->where('id', $this->order['id'])->update(['fullchain' => $result['fullchain'], 'privatekey' => $result['private_key'], 'issuer' => $result['issuer'], 'issuetime' => date('Y-m-d H:i:s', $result['validFrom']), 'expiretime' => date('Y-m-d H:i:s', $result['validTo'])]);
         $this->saveResult(3);
         $this->resetRetry();
     }
@@ -372,28 +408,48 @@ class CertOrderService
     //吊销证书
     public function revoke()
     {
-        $this->client->setLogger(function ($txt) {
-            $this->saveLog($txt);
-        });
+        $this->lockOrder();
         try {
+            if ((int)$this->order['status'] === 4) return;
+            if ((int)$this->order['status'] !== 3) throw new Exception('仅已签发证书可以吊销', 102);
+            $this->client->setLogger(function ($txt) { $this->saveLog($txt); });
             $this->client->revoke($this->info, $this->order['fullchain']);
-        } catch (Exception $e) {
-            throw $e;
+            $this->saveResult(4);
+        } finally {
+            $this->unlockOrder();
         }
-        $this->saveResult(4);
     }
 
     //取消证书订单
-    public function cancel(){
-        $this->client->setLogger(function ($txt) {
-            $this->saveLog($txt);
-        });
-        if($this->order['status'] == 1 || $this->order['status'] == 2 || $this->order['status'] < -2){
-            try {
-                $this->client->cancel($this->info);
-            } catch (Exception $e) {
+    public function cancel()
+    {
+        $this->lockOrder();
+        try {
+            $this->client->setLogger(function ($txt) { $this->saveLog($txt); });
+            if ($this->order['status'] == 1 || $this->order['status'] == 2 || $this->order['status'] < -2) {
+                try { $this->client->cancel($this->info); } catch (\Throwable $e) {
+                    $this->saveLog('[Warning] 取消远程订单失败: ' . $e->getMessage());
+                }
             }
+        } finally {
+            $this->unlockOrder();
         }
+    }
+
+    /** Delete only while no issue/deploy worker can still use this order. */
+    public function remove(): void
+    {
+        $this->lockOrder();
+        try {
+            if ($this->db->name('cert_deploy')->where('oid', $this->order['id'])->count()) throw new Exception('该证书关联了自动部署任务，无法删除');
+            $this->cancel();
+            $this->db->startTrans();
+            try {
+                $this->db->name('cert_domain')->where('oid', $this->order['id'])->delete();
+                $this->db->name('cert_order')->where('id', $this->order['id'])->delete();
+                $this->db->commit();
+            } catch (\Throwable $e) { $this->db->rollback(); throw $e; }
+        } finally { $this->unlockOrder(); }
     }
 
     //添加DNS记录
@@ -407,7 +463,7 @@ class CertOrderService
             CertDnsUtils::addDns($this->dnsList, function ($txt) {
                 $this->saveLog($txt);
             }, !empty($this->cnameDomainList));
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->saveResult(-3, $e->getMessage());
             throw $e;
         }
@@ -423,7 +479,7 @@ class CertOrderService
             CertDnsUtils::delDns($this->dnsList, function ($txt) {
                 $this->saveLog($txt);
             }, true);
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $this->saveLog('[Error] ' . $e->getMessage());
         }
     }
@@ -431,7 +487,7 @@ class CertOrderService
     //检查域名CNAME代理记录
     private function checkDomainCname($id)
     {
-        $row = Db::name('cert_cname')->alias('A')->join('domain B', 'A.did = B.id')->where('A.id', $id)->field('A.*,B.name cnamedomain')->find();
+        $row = $this->db->name('cert_cname')->alias('A')->join('domain B', 'A.did = B.id')->where('A.id', $id)->field('A.*,B.name cnamedomain')->find();
         $domain = '_acme-challenge.' . $row['domain'];
         $record = $row['rr'] . '.' . $row['cnamedomain'];
         $result = \app\utils\DnsQueryUtils::get_dns_records($domain, 'CNAME');
@@ -439,7 +495,7 @@ class CertOrderService
             $result = \app\utils\DnsQueryUtils::query_dns_doh($domain, 'CNAME');
             if (!$result || !in_array($record, $result)) {
                 if ($row['status'] == 1) {
-                    Db::name('cert_cname')->where('id', $id)->update(['status' => 0]);
+                    $this->db->name('cert_cname')->where('id', $id)->update(['status' => 0]);
                 }
                 throw new Exception('域名' . $row['domain'] . '的CNAME代理记录未验证通过');
             }
@@ -449,12 +505,12 @@ class CertOrderService
     private function saveLog($txt)
     {
         if (empty($this->order['processid'])) return;
-        if (!is_dir(app()->getRuntimePath() . 'log')) mkdir(app()->getRuntimePath() . 'log');
+        if (!is_dir(app()->getRuntimePath() . 'log')) mkdir(app()->getRuntimePath() . 'log', 0750, true);
         $file_name = app()->getRuntimePath().'log/'.$this->order['processid'].'.log';
         $file_exists = file_exists($file_name);
-        file_put_contents($file_name, $txt . PHP_EOL, FILE_APPEND);
+        file_put_contents($file_name, $txt . PHP_EOL, FILE_APPEND | LOCK_EX);
         if (!$file_exists) {
-            @chmod($file_name, 0777);
+            @chmod($file_name, 0640);
         }
         if(php_sapi_name() == 'cli'){
             echo $txt . PHP_EOL;

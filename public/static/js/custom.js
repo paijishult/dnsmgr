@@ -4,21 +4,11 @@ if (typeof window.htmlEscape !== 'function') {
 		return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 	};
 }
-var location_url = window.location.href;
-var parameter_str = location_url.split('?')[1];
-if (parameter_str !== undefined) {
-    parameter_str = parameter_str.split('#')[0];
-    var $_GET = {};
-    var parameter_arr = parameter_str.split('&');
-    var tmp_arr;
-    for (var i = 0, len = parameter_arr.length; i <= len - 1; i++) {
-        tmp_arr = parameter_arr[i].split('=');
-        $_GET[tmp_arr[0]] = decodeURIComponent(tmp_arr[1]);
-    }
-    window.$_GET = $_GET;
-} else {
-    window.$_GET = [];
-}
+// URLSearchParams handles encoded separators, '+' and malformed percent escapes.
+window.$_GET = Object.create(null);
+new URLSearchParams(window.location.search).forEach(function (value, key) {
+    window.$_GET[key] = value;
+});
 
 function searchRefresh(){
 	$('#listTable').bootstrapTable('refresh');
@@ -73,6 +63,7 @@ if (typeof $.fn.bootstrapTable !== "undefined") {
     $.fn.bootstrapTable.custom = {
         method: 'post',
         contentType: "application/x-www-form-urlencoded",
+        escape: true,
         sortable: true,
         pagination: true,
         sidePagination: 'server',
@@ -221,7 +212,8 @@ function getStoredPageSize(key, defaultSize) {
     if (urlSize && VALID_PAGE_SIZES.indexOf(urlSize) !== -1) {
         return urlSize;
     }
-    var stored = localStorage.getItem(key);
+    var stored = null;
+    try { stored = localStorage.getItem(key); } catch (e) {}
     if (stored) {
         var storedSize = parseInt(stored);
         if (VALID_PAGE_SIZES.indexOf(storedSize) !== -1) {
@@ -234,7 +226,7 @@ function getStoredPageSize(key, defaultSize) {
 function setStoredPageSize(key, size) {
     var intSize = parseInt(size);
     if (VALID_PAGE_SIZES.indexOf(intSize) !== -1) {
-        localStorage.setItem(key, intSize);
+        try { localStorage.setItem(key, intSize); } catch (e) {}
     }
 }
 
@@ -273,7 +265,7 @@ window.znTester = function(opts) {
 		if (r.details && r.details.length) {
 			html += '<ul>';
 			$.each(r.details, function(_, d) {
-				var lv = d.level || 'ok';
+				var lv = ['ok', 'warn', 'fail'].indexOf(d.level) !== -1 ? d.level : 'ok';
 				var icon = lv == 'ok' ? 'fa-check-circle' : (lv == 'warn' ? 'fa-exclamation-circle' : 'fa-times-circle');
 				html += '<li class="' + lv + '"><i class="fa ' + icon + '"></i><span>' + htmlEscape(d.text) + '</span></li>';
 			});

@@ -166,7 +166,8 @@ class Apikey extends BaseController
         $user = Db::name('user')->where('id', $uid)->find();
         if (!$user || $user['status'] != 1) return '所属用户不存在或已封禁';
         $isAdmin = $user['level'] == 2;
-        $domains = ApiKeyHelper::normalizeDomains((string)input('post.domains', ''));
+        try { $domains = ApiKeyHelper::normalizeDomains((string)input('post.domains', '')); }
+        catch (\InvalidArgumentException | \RuntimeException $e) { return $e->getMessage(); }
         if (!empty($domains)) {
             $exists = Db::name('domain')->where('name', 'in', $domains)->column('name');
             $missing = array_diff($domains, $exists);

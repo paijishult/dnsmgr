@@ -27,6 +27,7 @@ class Dmtask extends Command
     {
         $res = Db::name('config')->cache('configs', 0)->column('value', 'key');
         Config::set($res, 'sys');
+        \app\service\FeatureMigrationService::ensure();
 
         config_set('run_error', '');
         if (!extension_loaded('swoole')) {
@@ -37,7 +38,7 @@ class Dmtask extends Command
         try {
             $output->writeln('进程启动成功.');
             $this->runtask();
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             $output->writeln('[Error] ' . $e->getMessage());
             config_set('run_error', $e->getMessage());
         }
@@ -60,19 +61,21 @@ class Dmtask extends Command
 
                 $rows = Db::name('dmtask')->where('checknexttime', '<=', time())->where('active', 1)->order('id', 'ASC')->select();
                 foreach ($rows as $row) {
+                    // Claim the scheduled occurrence before starting a coroutine. Two
+                    // monitor processes must not count the same check twice.
+                    $claimed = Db::name('dmtask')->where('id', $row['id'])
+                        ->where('active', 1)->where('checknexttime', $row['checknexttime'])
+                        ->update(['checktime' => time(), 'checknexttime' => time() + max(1, (int)$row['frequency'])]);
+                    if (!$claimed) continue;
                     \go(function () use ($row) {
                         try {
                             (new TaskRunner())->execute($row);
                         } catch (\Swoole\ExitException $e) {
                             echo $e->getStatus() . "\n";
-                        } catch (Exception $e) {
+                        } catch (\Throwable $e) {
                             echo $e->__toString() . "\n";
                         }
                     });
-                    Db::name('dmtask')->where('id', $row['id'])->update([
-                        'checktime' => time(),
-                        'checknexttime' => time() + $row['frequency']
-                    ]);
                     $count++;
                 }
 

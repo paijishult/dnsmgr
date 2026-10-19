@@ -14,6 +14,30 @@ class k8s implements DeployInterface
     private $bearerToken;
     private $tls = [];
     private $proxy;
+    private array $temporaryFiles = [];
+
+    public function __destruct()
+    {
+        $this->clearTemporaryFiles();
+    }
+
+    private function clearTemporaryFiles(): void
+    {
+        foreach ($this->temporaryFiles as $file) if (is_file($file)) @unlink($file);
+        $this->temporaryFiles = [];
+    }
+
+    private function credentialFile(string $encoded): string
+    {
+        $value = base64_decode($encoded, true);
+        if ($value === false || $value === '' || strlen($value) > 1048576) throw new Exception('Kubeconfig证书或私钥编码不正确');
+        $file = tempnam(sys_get_temp_dir(), 'dnsmgr_k8s_');
+        if ($file === false) throw new Exception('无法创建Kubernetes临时凭据');
+        $this->temporaryFiles[] = $file;
+        @chmod($file, 0600);
+        if (file_put_contents($file, $value) !== strlen($value)) throw new Exception('无法保存Kubernetes临时凭据');
+        return $file;
+    }
 
     public function __construct($config)
     {
@@ -31,6 +55,10 @@ class k8s implements DeployInterface
     {
         $namespace = $config['namespace'];
         $secretName = $config['secret_name'];
+        foreach ([$namespace, $secretName] as $component) {
+            if (!is_string($component) || !preg_match('/\A[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\z/D', $component)) throw new Exception('Kubernetes命名空间或Secret名称格式不正确');
+        }
+        if (!is_string($fullchain) || !is_string($privatekey) || $fullchain === '' || $privatekey === '') throw new Exception('待部署证书或私钥不能为空');
         if (empty($namespace)) throw new Exception('命名空间不能为空');
         if (empty($secretName)) throw new Exception('Secret名称不能为空');
 
@@ -42,8 +70,8 @@ class k8s implements DeployInterface
             'metadata' => ['name' => $secretName, 'namespace' => $namespace],
             'type' => 'kubernetes.io/tls',
             'data' => [
-                'tls.crt' => base64_encode($config['fullchain']),
-                'tls.key' => base64_encode($config['privatekey']),
+                'tls.crt' => base64_encode($fullchain),
+                'tls.key' => base64_encode($privatekey),
             ],
         ];
 
@@ -70,6 +98,8 @@ class k8s implements DeployInterface
         if (!empty($config['ingresses'])) {
             $ingressUrl = '/apis/networking.k8s.io/v1/namespaces/' . $namespace . '/ingresses';
             foreach (explode(',', $config['ingresses']) as $ingName) {
+                $ingName = trim($ingName);
+                if (!preg_match('/\A[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\z/D', $ingName)) throw new Exception('Ingress名称格式不正确');
                 list($gCode, $gBody, $gErr) = $this->k8s_request('GET', $ingressUrl . '/' . $ingName);
                 if ($gCode < 200 || $gCode >= 300) throw new Exception("获取Ingress '$ingName' 失败 (HTTP $gCode): $gBody | $gErr");
                 $ing = json_decode($gBody, true);
@@ -107,6 +137,7 @@ class k8s implements DeployInterface
 
     private function parse()
     {
+        $this->clearTemporaryFiles();
         $kcfg = Yaml::parse($this->kubeconfig);
         if (!$kcfg) throw new Exception('Kubeconfig格式错误');
         $curr = $kcfg['current-context'] ?? null;
@@ -131,19 +162,22 @@ class k8s implements DeployInterface
         $this->server = $cluster['cluster']['server'] ?? null;
         if (!$this->server) throw new Exception("Kubeconfig中找不到cluster.server");
         $this->server = rtrim($this->server, '/');
+        $server = parse_url($this->server);
+        if (!$server || ($server['scheme'] ?? '') !== 'https' || empty($server['host']) || isset($server['user']) || isset($server['pass']) || isset($server['query']) || isset($server['fragment'])) throw new Exception('Kubernetes API必须使用不含凭据、查询或片段的HTTPS地址');
 
         $this->bearerToken = $user['user']['token'] ?? ($user['user']['auth-provider']['config']['access-token'] ?? null);
         $clientCertFile = $clientKeyFile = null;
         if (!empty($user['user']['client-certificate-data']) && !empty($user['user']['client-key-data'])) {
-            $clientCertFile = tempnam(sys_get_temp_dir(), 'kcc_');
-            $clientKeyFile  = tempnam(sys_get_temp_dir(), 'kck_');
-            file_put_contents($clientCertFile, base64_decode($user['user']['client-certificate-data']));
-            file_put_contents($clientKeyFile,  base64_decode($user['user']['client-key-data']));
+            $clientCertFile = $this->credentialFile($user['user']['client-certificate-data']);
+            $clientKeyFile = $this->credentialFile($user['user']['client-key-data']);
         } elseif (!empty($user['user']['client-certificate']) && !empty($user['user']['client-key'])) {
             $clientCertFile = $user['user']['client-certificate'];
             $clientKeyFile  = $user['user']['client-key'];
         }
-        $this->tls = ['cert' => $clientCertFile, 'key' => $clientKeyFile];
+        $ca = null;
+        if (!empty($cluster['cluster']['certificate-authority-data'])) $ca = $this->credentialFile($cluster['cluster']['certificate-authority-data']);
+        elseif (!empty($cluster['cluster']['certificate-authority'])) $ca = $cluster['cluster']['certificate-authority'];
+        $this->tls = ['cert' => $clientCertFile, 'key' => $clientKeyFile, 'ca' => $ca, 'insecure' => ($cluster['cluster']['insecure-skip-tls-verify'] ?? false) === true];
     }
 
     private function verify()
@@ -166,8 +200,9 @@ class k8s implements DeployInterface
         if ($body !== null) $headers[] = 'Content-Type: application/json';
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
         if ($body !== null) curl_setopt($ch, CURLOPT_POSTFIELDS, $body);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, !$this->tls['insecure']);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, $this->tls['insecure'] ? 0 : 2);
+        if ($this->tls['ca']) curl_setopt($ch, CURLOPT_CAINFO, $this->tls['ca']);
         if (!empty($this->tls['cert']) && !empty($this->tls['key'])) {
             curl_setopt($ch, CURLOPT_SSLCERT, $this->tls['cert']);
             curl_setopt($ch, CURLOPT_SSLKEY,  $this->tls['key']);

@@ -30,7 +30,7 @@ function setvcode(){
         if(res.code == 0){
             layer.msg(status == '1' ? '图形验证码已开启' : '图形验证码已关闭', {icon: 1, time: 1000});
         }else{
-            layer.alert(res.msg, {icon: 2});
+            layer.alert(htmlEscape(res.msg), {icon: 2});
             $("#vocde_switch").prop('checked', !status);
         }
     });

@@ -110,7 +110,7 @@ function saveSetting(obj){
 				  window.location.reload()
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		},
 		error:function(data){
@@ -130,9 +130,9 @@ function queryapi(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		},
 		error:function(data){

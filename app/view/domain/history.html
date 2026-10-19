@@ -1,0 +1,68 @@
+{extend name="common/layout" /}
+{block name="title"}DNS 变更与快照{/block}
+{block name="main"}
+<div class="row"><div class="col-xs-12">
+<div class="panel panel-default panel-intro">
+  <div class="panel-heading"><strong>DNS 变更与快照</strong> <span class="text-muted">{$domainName}</span></div>
+  <div class="panel-body">
+    <p>每次修改解析前自动保存快照，保留最近 100 份。回滚先展示具体差异，确认后执行；根域名 NS 和 SOA 保持原样。</p>
+    <div class="btn-toolbar" style="margin-bottom:16px"><a href="/record/{$domainId}" class="btn btn-default"><i class="fa fa-arrow-left"></i> 返回解析列表</a><button type="button" id="createSnapshot" class="btn btn-primary"><i class="fa fa-camera"></i> 创建快照</button><button type="button" id="reloadSnapshots" class="btn btn-default"><i class="fa fa-refresh"></i> 刷新</button></div>
+    <table id="snapshotTable"></table>
+  </div>
+</div>
+<div class="panel panel-default">
+  <div class="panel-heading"><strong>批量添加预览</strong></div>
+  <div class="panel-body">
+    <form id="previewForm">
+      <div class="row"><div class="col-sm-3"><label for="recordType">记录类型</label><select id="recordType" class="form-control"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option><option>MX</option><option>SRV</option><option>CAA</option><option>NS</option></select></div><div class="col-sm-3"><label for="recordLine">线路</label><select id="recordLine" class="form-control" required></select></div><div class="col-sm-3"><label for="recordTtl">TTL（秒）</label><input type="number" min="1" max="2147483647" id="recordTtl" class="form-control" value="600" required></div><div class="col-sm-3"><label for="recordMx">MX 优先级</label><input type="number" min="0" max="65535" id="recordMx" class="form-control" value="1" required></div></div>
+      <div class="form-group" style="margin-top:12px"><label for="recordLines">每行一条：主机记录和记录值，以空格分开，最多 500 条</label><textarea id="recordLines" class="form-control" rows="5" placeholder="www 192.0.2.1&#10;api 192.0.2.2" required></textarea></div>
+      <button type="submit" id="previewButton" class="btn btn-primary">预览变更</button>
+    </form>
+  </div>
+</div>
+<div id="historyMessage" role="status" aria-live="polite"></div>
+</div></div>
+<div class="modal fade" id="detailModal" tabindex="-1" role="dialog" aria-labelledby="detailTitle"><div class="modal-dialog modal-lg" role="document"><div class="modal-content"><div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="关闭"><span aria-hidden="true">&times;</span></button><h4 id="detailTitle" class="modal-title">快照记录</h4></div><div class="modal-body"><div class="table-responsive"><table class="table table-striped"><thead id="detailHead"></thead><tbody id="detailBody"></tbody></table></div><p id="previewExpiry" class="text-muted"></p>
+{if request()->user['type'] == 'user' && checkPermission(1)}<div class="form-group" id="enqueueOptions" style="display:none"><label for="taskName">后台任务名称（可选）</label><input id="taskName" type="text" class="form-control" maxlength="120" placeholder="留空使用域名与变更类型命名"><p class="help-block">加入后台任务后可关闭页面，并在任务列表查看进度；已有变更不会因取消任务而撤销。</p></div>{/if}
+<div id="applyMessage" role="status" aria-live="polite"></div></div><div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">关闭</button>{if request()->user['type'] == 'user' && checkPermission(1)}<button type="button" class="btn btn-primary" id="enqueueChanges" style="display:none">加入后台任务</button>{/if}<button type="button" class="btn btn-danger" id="applyChanges" style="display:none">确认执行以上变更</button></div></div></div></div>
+{/block}
+{block name="script"}
+<script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
+<script>
+$(function () {
+  'use strict';
+  var domainId = {$domainId}, token = null, busy = false;
+  var actions = {add: '添加', update: '修改', delete: '删除', status: '调整状态', remark: '修改备注'};
+  function message(target, text, danger) { $(target).empty().append($('<div>').addClass('alert ' + (danger ? 'alert-danger' : 'alert-success')).text(text)); }
+  function post(path, data, done) { $.ajax({
+    url: path + '/' + domainId, type: 'POST', data: data, dataType: 'json'}).done(function (r) { if (r.code !== 0) { message('#historyMessage', r.msg || '操作失败', true); if (r.data) message('#applyMessage', r.msg || '操作失败', true); done && done(r); return; } done && done(r); }).fail(function () { message('#historyMessage', '请求失败，请检查网络后重试', true); }); }
+  function cell(row, value) { $('<td>').css({'white-space': 'pre-wrap', 'overflow-wrap': 'anywhere', 'max-width': '360px'}).text(value == null ? '' : (Array.isArray(value) ? value.join('\n') : String(value))).appendTo(row); }
+  function summary(r) { if (!r) return '—'; return String(r.Name == null ? r.name : r.Name) + ' [' + String(r.Type == null ? r.type : r.Type) + '] ' + String(r.Value == null ? r.value : r.Value) + '\n线路: ' + String(r.Line == null ? (r.line || '') : r.Line) + '  TTL: ' + String(r.TTL == null ? (r.ttl || '') : r.TTL); }
+  function preview(plan) {
+    token = plan.token; $('#applyMessage').empty(); $('#detailTitle').text('确认 DNS 变更'); $('#detailHead').empty().append('<tr><th>操作</th><th>当前记录</th><th>变更后</th></tr>'); $('#detailBody').empty();
+    plan.changes.forEach(function (change) { var tr = $('<tr>').appendTo('#detailBody'), op = change.operation; cell(tr, actions[op.action] || op.action); cell(tr, summary(change.before)); cell(tr, op.action === 'delete' ? '删除该记录' : (op.action === 'status' ? (op.status === '1' ? '启用' : '暂停') : (op.action === 'remark' ? op.remark : summary(op)))); });
+    $('#previewExpiry').text(plan.changes.length ? '共 ' + plan.changes.length + ' 项变更，预览有效期 10 分钟。执行前会再次检查记录是否发生变化。' : '当前解析与快照一致，无需回滚。');
+    $('#applyChanges,#enqueueChanges,#enqueueOptions').toggle(!!token && plan.changes.length > 0); $('#applyChanges,#enqueueChanges').prop('disabled', false); $('#taskName').val(''); $('#detailModal').modal('show');
+  }
+  $('#snapshotTable').bootstrapTable({
+    url: '/record/history/data/' + domainId, method: 'post', contentType: 'application/x-www-form-urlencoded', sidePagination: 'server', pagination: true, pageSize: 10, escape: true, columns: [{field: 'addtime', title: '创建时间'}, {field: 'label', title: '说明'}, {field: 'record_count', title: '记录数'}, {field: 'id', title: '操作', escape: false, formatter: function (id) { id = Number(id); return Number.isSafeInteger(id) && id > 0 ? '<button type="button" class="btn btn-xs btn-default snapshot-view" data-id="' + id + '">查看</button> <button type="button" class="btn btn-xs btn-warning snapshot-rollback" data-id="' + id + '">预览回滚</button>' : ''; }}]});
+  $('#reloadSnapshots').on('click', function () { $('#snapshotTable').bootstrapTable('refresh'); });
+  $('#createSnapshot').on('click', function () { if (busy) return; busy = true; $(this).prop('disabled', true); $.ajax({
+    url: '/record/snapshot/' + domainId, type: 'POST', dataType: 'json'}).done(function (r) { message('#historyMessage', r.msg || '操作失败', r.code !== 0); if (r.code === 0) $('#snapshotTable').bootstrapTable('refresh'); }).fail(function () { message('#historyMessage', '创建快照失败，请重试', true); }).always(function () { busy = false; $('#createSnapshot').prop('disabled', false); }); });
+  $('#snapshotTable').on('click', '.snapshot-view', function () { var id = $(this).data('id'); post('/record/history/data', {snapshotid: id}, function (r) { if (r.code !== 0) return; token = null; $('#detailTitle').text('快照 #' + id); $('#detailHead').empty().append('<tr><th>主机记录</th><th>类型</th><th>记录值</th><th>线路</th><th>TTL</th><th>状态</th><th>备注</th></tr>'); $('#detailBody').empty(); r.data.forEach(function (record) { var tr = $('<tr>').appendTo('#detailBody'); ['Name', 'Type', 'Value', 'Line', 'TTL'].forEach(function (key) { cell(tr, record[key]); }); cell(tr, record.Status === '0' ? '暂停' : '启用'); cell(tr, record.Remark); }); $('#previewExpiry,#applyMessage').empty(); $('#applyChanges,#enqueueChanges,#enqueueOptions').hide(); $('#detailModal').modal('show'); }); });
+  $('#snapshotTable').on('click', '.snapshot-rollback', function () { post('/record/rollback/preview', {snapshotid: $(this).data('id')}, function (r) { if (r.code === 0) preview(r.data); }); });
+  $.post('/record/quickinfo/' + domainId, function (r) { if (r.code !== 0) { message('#historyMessage', r.msg || '无法获取线路', true); $('#previewButton').prop('disabled', true); return; } r.data.recordLine.forEach(function (line) { $('<option>').val(line.id).text(line.name).appendTo('#recordLine'); }); var ttl = Number(r.data.minTTL); if (ttl > 600) $('#recordTtl').val(ttl); }, 'json');
+  $('#previewForm').on('submit', function (event) { event.preventDefault(); var lines = $('#recordLines').val().split(/\r?\n/).filter(function (line) { return line.trim() !== ''; }); if (!lines.length || lines.length > 500) { message('#historyMessage', '请填写 1 至 500 条记录', true); return; } var operations = []; for (var i = 0; i < lines.length; i++) { var match = lines[i].trim().match(/^(\S+)\s+(.+)$/); if (!match) { message('#historyMessage', '第 ' + (i + 1) + ' 行格式不正确', true); return; } operations.push({action: 'add', name: match[1], type: $('#recordType').val(), value: match[2], line: $('#recordLine').val(), ttl: Number($('#recordTtl').val()), mx: Number($('#recordMx').val()), weight: null, remark: null}); } post('/record/preview', {operations: JSON.stringify(operations)}, function (r) { if (r.code === 0) preview(r.data); }); });
+  function consumePreview() { var reviewed = token; token = null; busy = true; $('#applyChanges,#enqueueChanges').prop('disabled', true); return reviewed; }
+  $('#enqueueChanges').on('click', function () { if (!token || busy) return; var reviewed = consumePreview(); $.ajax({
+    url: '/batch/enqueue', type: 'POST', dataType: 'json', data: {did: domainId, token: reviewed, name: $('#taskName').val() || ''}}).done(function (r) {
+      message('#applyMessage', r.msg || '加入后台任务失败，请重新预览', r.code !== 0);
+      if (r.code === 0) $('#applyMessage .alert').append(' ').append($('<a>').attr('href', '/batch').text('查看后台任务'));
+    }).fail(function () { message('#applyMessage', '请求中断，请先查看后台任务列表，确认结果后再重新预览。', true); }).always(function () { busy = false; }); });
+  $('#applyChanges').on('click', function () { if (!token || busy) return; var reviewed = consumePreview(); $.ajax({
+    url: '/record/apply/' + domainId, type: 'POST', dataType: 'json', data: {token: reviewed}}).done(function (r) { var text = r.msg || '操作失败'; if (r.data && r.data.results) r.data.results.filter(function (item) { return !item.success; }).forEach(function (item) { text += '；第 ' + (item.index + 1) + ' 项：' + item.message; }); message('#applyMessage', text, r.code !== 0); $('#snapshotTable').bootstrapTable('refresh'); }).fail(function () { message('#applyMessage', '请求中断，操作结果可能已生效。请刷新解析列表后重新预览。', true); }).always(function () { busy = false; }); });
+  $('#detailModal').on('hidden.bs.modal', function () { token = null; $('#applyChanges,#enqueueChanges').prop('disabled', true); });
+});
+</script>
+{/block}

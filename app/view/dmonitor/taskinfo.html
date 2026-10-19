@@ -34,7 +34,7 @@ tbody tr>td:nth-child(4){overflow: hidden;text-overflow: ellipsis;white-space: n
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
 <script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
-var action_name = {$info.action_name|json_encode|raw};
+var action_name = {:json_encode($info['action_name'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 $(document).ready(function(){
 	updateToolbar();
 	const pageSizeKey = 'dmtaskinfo_pagesize';
@@ -49,17 +49,20 @@ $(document).ready(function(){
 		columns: [
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID'
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作类型',
 				formatter: function(value, row, index) {
-					return action_name[value];
+					return htmlEscape(action_name[value]);
 				}
 			},
 			{
 				field: 'date',
+				escape: true,
 				title: '时间'
 			},
 			{

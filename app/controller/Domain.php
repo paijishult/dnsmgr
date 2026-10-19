@@ -7,6 +7,9 @@ use think\facade\Db;
 use think\facade\View;
 use think\facade\Cache;
 use app\lib\DnsHelper;
+use app\lib\RecordGuard;
+use app\lib\GuardedDns;
+use app\service\DnsChangeService;
 use app\service\ExpireNoticeService;
 use app\utils\DnsQueryUtils;
 use Exception;
@@ -24,8 +27,8 @@ class Domain extends BaseController
     {
         if (!checkPermission(2)) return json(['total' => 0, 'rows' => []]);
         $kw = $this->request->post('kw', null, 'trim');
-        $offset = input('post.offset/d');
-        $limit = input('post.limit/d');
+        $offset = max(0, input('post.offset/d', 0));
+        $limit = max(0, min(10000, input('post.limit/d', 10)));
         $sort = input('post.sortName', null, 'trim');
         $orderDir = strtolower(input('post.sortOrder', 'desc')) === 'asc' ? 'asc' : 'desc';
 
@@ -236,8 +239,8 @@ class Domain extends BaseController
         $cid = input('post.cid', null, 'trim');
         $sort = input('post.sortName', null, 'trim');
         $orderDir = strtolower(input('post.sortOrder', 'desc')) === 'asc' ? 'asc' : 'desc';
-        $offset = input('post.offset/d', 0);
-        $limit = input('post.limit/d', 10);
+        $offset = max(0, input('post.offset/d', 0));
+        $limit = max(0, min(10000, input('post.limit/d', 10)));
         $id = input('post.id');
         $aid = input('post.aid', null, 'trim');
 
@@ -324,20 +327,32 @@ class Domain extends BaseController
         } elseif ($act == 'add') {
             if (!checkPermission(2)) return $this->alert('error', '无权限');
             $aid = input('post.aid/d');
+            if (!Db::name('account')->where('id', $aid)->find()) return json(['code' => -1, 'msg' => 'DNS账户不存在']);
             $method = input('post.method/d', 0);
-            $name = input('post.name', null, 'trim');
+            try { $name = RecordGuard::domainName(input('post.name', null, 'trim')); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+            if (!api_domain_allowed($name)) return json(['code' => -1, 'msg' => '该域名不在API密钥允许的范围内']);
             $thirdid = input('post.thirdid', null, 'trim');
-            $recordcount = input('post.recordcount/d', 0);
-            if ($method == 1 && empty($name) || $method == 0 && (empty($name) || empty($thirdid))) return json(['code' => -1, 'msg' => '参数不能为空']);
+            $recordcount = max(0, input('post.recordcount/d', 0));
+            if ($method == 1 && empty($name) || $method == 0 && (empty($name) || isNullOrEmpty($thirdid))) return json(['code' => -1, 'msg' => '参数不能为空']);
             if (Db::name('domain')->where('aid', $aid)->where('name', $name)->find()) {
                 return json(['code' => -1, 'msg' => '域名已存在']);
             }
             if ($method == 1) {
                 $dns = DnsHelper::getModel($aid);
+                if (!$dns) return json(['code' => -1, 'msg' => 'DNS账户不存在']);
                 $result = $dns->addDomain($name);
                 if (!$result) return json(['code' => -1, 'msg' => '添加域名失败，' . $dns->getError()]);
-                $name = $result['name'];
+                try { $name = RecordGuard::domainName($result['name']); }
+                catch (\Throwable $e) { return json(['code' => -1, 'msg' => 'DNS平台返回了无效域名']); }
+                if (!api_domain_allowed($name)) return json(['code' => -1, 'msg' => 'DNS平台返回的域名超出API授权范围']);
                 $thirdid = $result['id'];
+            } else {
+                try {
+                    $dns = DnsHelper::getModel($aid);
+                    if (!$dns) throw new \RuntimeException('DNS账户不存在');
+                    RecordGuard::assertDomainBindings($dns, [['name' => $name, 'id' => $thirdid]]);
+                } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
             }
             Db::name('domain')->insert([
                 'aid' => $aid,
@@ -391,19 +406,32 @@ class Domain extends BaseController
             if (!checkPermission(2)) return $this->alert('error', '无权限');
             $aid = input('post.aid/d');
             $domains = input('post.domains');
-            if (empty($domains)) return json(['code' => -1, 'msg' => '参数不能为空']);
+            if (!is_array($domains) || !$domains || count($domains) > 500) return json(['code' => -1, 'msg' => '每批应包含1至500个域名']);
+            if (!Db::name('account')->where('id', $aid)->find()) return json(['code' => -1, 'msg' => 'DNS账户不存在']);
             $data = [];
+            $names = [];
             foreach ($domains as $row) {
+                try { $name = RecordGuard::domainName($row['name'] ?? null); }
+                catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+                if (!is_array($row) || !isset($row['id']) || !is_scalar($row['id']) || (string)$row['id'] === '' || strlen((string)$row['id']) > 255) return json(['code' => -1, 'msg' => '域名ID格式不正确']);
+                if (!api_domain_allowed($name)) return json(['code' => -1, 'msg' => '部分域名超出API授权范围']);
+                if (isset($names[$name]) || Db::name('domain')->where('aid', $aid)->where('name', $name)->find()) return json(['code' => -1, 'msg' => '域名已存在或批次中重复']);
+                $names[$name] = true;
                 $data[] = [
                     'aid' => $aid,
-                    'name' => $row['name'],
+                    'name' => $name,
                     'thirdid' => $row['id'],
                     'addtime' => date('Y-m-d H:i:s'),
                     'is_hide' => 0,
                     'is_sso' => 1,
-                    'recordcount' => $row['recordcount'],
+                    'recordcount' => max(0, (int)($row['recordcount'] ?? 0)),
                 ];
             }
+            try {
+                $dns = DnsHelper::getModel($aid);
+                if (!$dns) throw new \RuntimeException('DNS账户不存在');
+                RecordGuard::assertDomainBindings($dns, array_map(fn($row) => ['name' => $row['name'], 'id' => $row['thirdid']], $data));
+            } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
             Db::name('domain')->insertAll($data);
             return json(['code' => 0, 'msg' => '成功添加' . count($data) . '个域名！']);
         } elseif ($act == 'batchedit') {
@@ -563,8 +591,8 @@ class Domain extends BaseController
         $status = input('post.status', null, 'trim');
         $sort = input('post.sortName', null, 'trim');
         $sortOrder = strtolower(input('post.sortOrder', 'asc')) === 'desc' ? 'desc' : 'asc';
-        $offset = input('post.offset/d', 0);
-        $limit = input('post.limit/d', 10);
+        $offset = max(0, input('post.offset/d', 0));
+        $limit = max(0, min(10000, input('post.limit/d', 10)));
         if ($limit == 0) {
             $page = 1;
         } else {
@@ -653,11 +681,12 @@ class Domain extends BaseController
         $mx = input('post.mx/d', 1);
         $remark = input('post.remark', null, 'trim');
 
-        if (empty($name) || empty($type) || empty($value)) {
+        if (($name === null || $name === '') || empty($type) || ($value === null || $value === '')) {
             return json(['code' => -1, 'msg' => '参数不能为空']);
         }
 
-        $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+        try { $dns = $this->guardedModel($drow); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
         $recordid = $dns->addDomainRecord($name, $type, $value, $line, $ttl, $mx, $weight, $remark);
         if ($recordid) {
             $this->add_log($drow['name'], '添加解析', $name.' ['.$type.'] '.$value.' (线路:'.$line.' TTL:'.$ttl.')');
@@ -688,11 +717,14 @@ class Domain extends BaseController
 
         $recordinfo = input('post.recordinfo', null, 'trim');
 
-        if (empty($recordid) || empty($name) || empty($type) || empty($value)) {
+        if (($recordid === null || $recordid === '') || ($name === null || $name === '') || empty($type) || ($value === null || $value === '')) {
             return json(['code' => -1, 'msg' => '参数不能为空']);
         }
 
-        $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+        try { $dns = $this->guardedModel($drow); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+        try { $verified = $dns->owned([$recordid]); $recordinfo = json_encode($verified[0], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
         $recordid = $dns->updateDomainRecord($recordid, $name, $type, $value, $line, $ttl, $mx, $weight, $remark);
         if ($recordid) {
             if ($recordinfo) {
@@ -728,11 +760,14 @@ class Domain extends BaseController
         $recordid = input('post.recordid', null, 'trim');
         $recordinfo = input('post.recordinfo', null, 'trim');
 
-        if (empty($recordid)) {
+        if (($recordid === null || $recordid === '')) {
             return json(['code' => -1, 'msg' => '参数不能为空']);
         }
 
-        $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+        try { $dns = $this->guardedModel($drow); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+        try { $verified = $dns->owned([$recordid]); $recordinfo = json_encode($verified[0], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
         if ($dns->deleteDomainRecord($recordid)) {
             if ($recordinfo) {
                 $recordinfo = json_decode($recordinfo, true);
@@ -764,11 +799,14 @@ class Domain extends BaseController
         $status = input('post.status', null, 'trim');
         $recordinfo = input('post.recordinfo', null, 'trim');
 
-        if (empty($recordid)) {
+        if (($recordid === null || $recordid === '')) {
             return json(['code' => -1, 'msg' => '参数不能为空']);
         }
 
-        $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+        try { $dns = $this->guardedModel($drow); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+        try { $verified = $dns->owned([$recordid]); $recordinfo = json_encode($verified[0], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
         if ($dns->setDomainRecordStatus($recordid, $status)) {
             $action = $status == '1' ? '启用解析' : '暂停解析';
             if ($recordinfo) {
@@ -800,12 +838,13 @@ class Domain extends BaseController
         $recordid = input('post.recordid', null, 'trim');
         $remark = input('post.remark', null, 'trim');
 
-        if (empty($recordid)) {
+        if (($recordid === null || $recordid === '')) {
             return json(['code' => -1, 'msg' => '参数不能为空']);
         }
         if (empty($remark)) $remark = null;
 
-        $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+        try { $dns = $this->guardedModel($drow); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
         if ($dns->updateDomainRecordRemark($recordid, $remark)) {
             return json(['code' => 0, 'msg' => '操作成功！']);
         } else {
@@ -826,13 +865,18 @@ class Domain extends BaseController
         $recordinfo = input('post.recordinfo', null, 'trim');
         $recordinfo = json_decode($recordinfo, true);
 
-        if (empty($recordinfo) || empty($action)) {
+        if (!is_array($recordinfo) || !$recordinfo || count($recordinfo) > RecordGuard::MAX_BATCH || empty($action)) {
             return json(['code' => -1, 'msg' => '参数不能为空']);
         }
 
+        if (!in_array($action, ['open', 'pause', 'delete', 'remark', 'group'], true)) return json(['code' => -1, 'msg' => '不支持的批量操作']);
         $success = 0;
         $fail = 0;
-        $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+        try { $dns = $this->guardedModel($drow); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+        try { $recordinfo = $dns->owned(array_map(fn($r) => is_array($r) ? ($r['RecordId'] ?? null) : null, $recordinfo)); }
+        catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+
         if ($action == 'open') {
             foreach ($recordinfo as $record) {
                 if ($dns->setDomainRecordStatus($record['RecordId'], '1')) {
@@ -899,16 +943,21 @@ class Domain extends BaseController
         $action = input('post.action', null, 'trim');
         $recordinfo = input('post.recordinfo', null, 'trim');
         $recordinfo = json_decode($recordinfo, true);
+        if (!is_array($recordinfo) || !$recordinfo || count($recordinfo) > RecordGuard::MAX_BATCH) return json(['code' => -1, 'msg' => '每批应包含1至500条记录']);
 
         if ($action == 'value') {
             $type = input('post.type', null, 'trim');
             $value = input('post.value', null, 'trim');
 
-            if (empty($recordinfo) || empty($type) || empty($value)) {
+            if (empty($recordinfo) || empty($type) || ($value === null || $value === '')) {
                 return json(['code' => -1, 'msg' => '参数不能为空']);
             }
 
-            $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+            try { $dns = $this->guardedModel($drow); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+            try { $recordinfo = $dns->owned(array_map(fn($r) => is_array($r) ? ($r['RecordId'] ?? null) : null, $recordinfo)); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+
 
             $success = 0;
             $fail = 0;
@@ -930,7 +979,11 @@ class Domain extends BaseController
                 return json(['code' => -1, 'msg' => '参数不能为空']);
             }
 
-            $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+            try { $dns = $this->guardedModel($drow); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+            try { $recordinfo = $dns->owned(array_map(fn($r) => is_array($r) ? ($r['RecordId'] ?? null) : null, $recordinfo)); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+
 
             $success = 0;
             $fail = 0;
@@ -946,6 +999,7 @@ class Domain extends BaseController
             }
             return json(['code' => 0, 'msg' => '批量修改解析线路，成功' . $success . '条，失败' . $fail . '条']);
         }
+        return json(['code' => -1, 'msg' => '不支持的批量修改操作']);
     }
 
     public function record_batch_add()
@@ -958,14 +1012,15 @@ class Domain extends BaseController
         $dnstype = Db::name('account')->where('id', $drow['aid'])->value('type');
         if (!checkPermission(0, $drow['name'])) return $this->alert('error', '无权限');
 
-        if (request()->isAjax()) {
+        if (request()->isPost()) {
             $record = input('post.record', null, 'trim');
             $type = input('post.type', null, 'trim');
             $line = input('post.line', null, 'trim');
             $ttl = input('post.ttl/d', 600);
             $mx = input('post.mx/d', 1);
             $remark = input('post.remark', null, 'trim');
-            $recordlist = explode("\n", $record);
+            $recordlist = explode("\n", (string)$record);
+            if (count($recordlist) > RecordGuard::MAX_BATCH) return json(['code' => -1, 'msg' => '每批最多500条记录']);
 
             if (empty($record) || empty($recordlist)) {
                 return json(['code' => -1, 'msg' => '参数不能为空']);
@@ -977,13 +1032,14 @@ class Domain extends BaseController
                 }
             }
 
-            $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+            try { $dns = $this->guardedModel($drow); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
 
             $success = 0;
             $fail = 0;
             foreach ($recordlist as $record) {
                 $record = trim($record);
-                $arr = explode(' ', $record);
+                $arr = preg_split('/\s+/', $record, 2);
                 if (empty($record) || empty($arr[0]) || empty($arr[1])) continue;
                 $thistype = empty($type) ? getDnsType($arr[1]) : $type;
                 $recordid = $dns->addDomainRecord($arr[0], $thistype, $arr[1], $line, $ttl, $mx, null, $remark);
@@ -1059,7 +1115,7 @@ class Domain extends BaseController
 
     public function record_batch_edit2()
     {
-        if (request()->isAjax()) {
+        if (request()->isPost()) {
             $id = input('post.id/d');
             $drow = Db::name('domain')->where('id', $id)->find();
             if (!$drow) {
@@ -1074,38 +1130,20 @@ class Domain extends BaseController
             $ttl = input('post.ttl/d', 0);
             $mx = input('post.mx/d', 0);
 
-            if (empty($name) || empty($type) || empty($value)) {
+            if (($name === null || $name === '') || empty($type) || ($value === null || $value === '')) {
                 return json(['code' => -1, 'msg' => '必填参数不能为空']);
             }
             $line = DnsHelper::$line_name[$dnstype]['DEF'] ?? 'default';
 
-            $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
-            $domainRecords = $dns->getSubDomainRecords($name, 1, 100);
+            try { $dns = $this->guardedModel($drow); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+            try { $domainRecords = ['list' => RecordGuard::all($dns, $drow['name'])]; }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
             if (!$domainRecords) return json(['code' => -1, 'msg' => '获取记录列表失败，' . $dns->getError()]);
             if (empty($domainRecords['list'])) return json(['code' => -1, 'msg' => '没有可修改的记录']);
 
-            if ($type == 'A' || $type == 'AAAA' || $type == 'CNAME') {
-                $list2 = array_filter($domainRecords['list'], function ($item) use ($type) {
-                    return $item['Type'] == $type;
-                });
-                if (!empty($list2)) {
-                    $list = $list2;
-                } else {
-                    $list = array_filter($domainRecords['list'], function ($item) {
-                        return $item['Type'] == 'A' || $item['Type'] == 'AAAA' || $item['Type'] == 'CNAME';
-                    });
-                }
-            } else {
-                $list = array_filter($domainRecords['list'], function ($item) use ($type) {
-                    return $item['Type'] == $type;
-                });
-            }
-            if (empty($list)) return json(['code' => -1, 'msg' => '没有可修改的'.$type.'记录']);
-
-            $list2 = array_filter($domainRecords['list'], function ($item) use ($line) {
-                return $item['Line'] == $line;
-            });
-            if (!empty($list2)) $list = $list2;
+            $list = RecordGuard::selectForBatchEdit($domainRecords['list'], $name, $type, (string)$line);
+            if (!$list) return json(['code' => -1, 'msg' => '没有可修改的'.$type.'记录']);
 
             $success = 0;
             $fail = 0;
@@ -1313,12 +1351,13 @@ class Domain extends BaseController
             if (!$weightModel || !method_exists($weightModel, 'setWeightStatus')) {
                 return json(['code' => -1, 'msg' => '该DNS平台不支持权重设置']);
             }
+            try { $dns = new GuardedDns($weightModel, $drow); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
             if ($act == 'status') {
                 $subdomain = input('post.subdomain', null, 'trim');
                 $status = input('post.status', null, 'trim');
                 $type = input('post.type', null, 'trim');
                 $line = input('post.line', null, 'trim');
-                $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
                 if ($dns->setWeightStatus($subdomain, $status, $type, $line)) {
                     return json(['code' => 0, 'msg' => '操作成功']);
                 } else {
@@ -1333,7 +1372,10 @@ class Domain extends BaseController
                 if (empty($subdomain) || empty($type) || empty($line) || $status == '1' && empty($weight)) {
                     return json(['code' => -1, 'msg' => '参数不能为空']);
                 }
-                $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+                if ($status === '1') {
+                    if (!is_array($weight) || !$weight || count($weight) > RecordGuard::MAX_BATCH) return json(['code' => -1, 'msg' => '权重记录无效']);
+                    try { $dns->owned(array_keys($weight)); } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+                }
                 if ($type == 'CNAME' || $dns->setWeightStatus($subdomain, $status, $type, $line)) {
                     if ($status == '1') {
                         $success = 0;
@@ -1382,8 +1424,8 @@ class Domain extends BaseController
     {
         $id = input('param.id/d');
         $keyword = input('post.keyword', null, 'trim');
-        $offset = input('post.offset/d');
-        $limit = input('post.limit/d');
+        $offset = max(0, input('post.offset/d', 0));
+        $limit = max(0, min(10000, input('post.limit/d', 10)));
         if ($limit == 0) {
             $page = 1;
         } else {
@@ -1677,9 +1719,18 @@ class Domain extends BaseController
         $type = input('post.type', null, 'trim');
         $value = input('post.value', null, 'trim');
 
-        if (empty($recordid) || empty($name) || empty($type)) {
+        if (($recordid === null || $recordid === '') || empty($name) || empty($type)) {
             return json(['code' => -1, 'msg' => '参数不能为空']);
         }
+
+        try {
+            $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
+            if (!$dns) throw new Exception('DNS模块不存在');
+            $verified = RecordGuard::owned($dns, $drow['name'], [$recordid])[0];
+            $name = $verified['Name'];
+            $type = $verified['Type'];
+            $value = is_array($verified['Value']) ? implode(',', $verified['Value']) : $verified['Value'];
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
 
         $domain = $name === '@' ? $drow['name'] : $name . '.' . $drow['name'];
         $domain = strtolower($domain);
@@ -1719,6 +1770,94 @@ class Domain extends BaseController
         return false;
     }
 
+    private function guardedModel(array $domain): GuardedDns
+    {
+        $dns = DnsHelper::getModel($domain['aid'], $domain['name'], $domain['thirdid']);
+        if (!$dns) throw new Exception('DNS模块不存在');
+        return new GuardedDns($dns, $domain);
+    }
+
+    private function historyContext(bool $write = false): array
+    {
+        $domain = Db::name('domain')->where('id', input('param.id/d'))->find();
+        if (!$domain) throw new Exception('域名不存在');
+        if (!checkPermission(0, $domain['name']) || !api_has_scope($write ? 'record:write' : 'record:read')) throw new Exception('无权限');
+        $dns = DnsHelper::getModel($domain['aid'], $domain['name'], $domain['thirdid']);
+        if (!$dns) throw new Exception('DNS模块不存在');
+        return [$domain, $dns];
+    }
+
+    public function record_history()
+    {
+        try {
+            [$domain] = $this->historyContext();
+            View::assign('domainId', $domain['id']);
+            View::assign('domainName', $domain['name']);
+            return view('history');
+        } catch (\Throwable $e) { return $this->alert('error', $e->getMessage()); }
+    }
+
+    public function record_history_data()
+    {
+        try {
+            [$domain] = $this->historyContext();
+            $snapshotId = input('post.snapshotid/d', 0);
+            $query = Db::name('dns_snapshot')->where('did', $domain['id']);
+            if ($snapshotId) {
+                $snapshot = $query->where('id', $snapshotId)->find();
+                if (!$snapshot) throw new Exception('快照不存在');
+                return json(['code' => 0, 'data' => json_decode($snapshot['records'], true, 512, JSON_THROW_ON_ERROR)]);
+            }
+            $total = $query->count();
+            $rows = $query->field('id,label,record_count,addtime')->order('id', 'desc')->limit(max(0, input('post.offset/d', 0)), max(1, min(100, input('post.limit/d', 10))))->select();
+            return json(['total' => $total, 'rows' => $rows]);
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage(), 'total' => 0, 'rows' => []]); }
+    }
+
+    public function record_snapshot()
+    {
+        try {
+            [$domain, $dns] = $this->historyContext(true);
+            $lock = DnsChangeService::lock($domain);
+            try { $id = (new DnsChangeService())->snapshot($domain, $dns, input('post.label', '手动快照', 'trim')); }
+            finally { flock($lock, LOCK_UN); fclose($lock); }
+            $this->add_log($domain['name'], 'DNS快照', '创建快照 #' . $id);
+            return json(['code' => 0, 'msg' => '快照创建成功', 'snapshot_id' => $id]);
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+    }
+
+    public function record_preview()
+    {
+        try {
+            [$domain, $dns] = $this->historyContext();
+            $operations = input('post.operations');
+            if (is_string($operations)) {
+                if (strlen($operations) > 1048576) throw new Exception('变更数据超过1MB');
+                $operations = json_decode($operations, true, 512, JSON_THROW_ON_ERROR);
+            }
+            if (!is_array($operations) || !array_is_list($operations)) throw new Exception('变更格式应为数组');
+            return json(['code' => 0, 'data' => (new DnsChangeService())->preview($domain, $dns, $operations, DnsChangeService::actor())]);
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+    }
+
+    public function record_apply()
+    {
+        try {
+            [$domain, $dns] = $this->historyContext(true);
+            $result = (new DnsChangeService())->apply($domain, $dns, input('post.token', '', 'trim'), DnsChangeService::actor());
+            $this->add_log($domain['name'], 'DNS变更执行', '快照 #' . $result['snapshot_id'] . '，完成' . count(array_filter($result['results'], fn($r) => $r['success'])) . '项，剩余' . $result['remaining'] . '项');
+            return json(['code' => $result['complete'] ? 0 : -1, 'msg' => $result['complete'] ? 'DNS变更已执行' : '部分变更未完成，请检查逐项结果后重新预览', 'data' => $result]);
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+    }
+
+    public function record_rollback_preview()
+    {
+        try {
+            [$domain, $dns] = $this->historyContext(true);
+            return json(['code' => 0, 'data' => (new DnsChangeService())->rollbackPreview($domain, $dns, input('post.snapshotid/d'), DnsChangeService::actor())]);
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+    }
+
     public function category()
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
@@ -1728,8 +1867,8 @@ class Domain extends BaseController
     public function category_data()
     {
         if (!checkPermission(2)) return json(['total' => 0, 'rows' => []]);
-        $offset = input('post.offset/d', 0);
-        $limit = input('post.limit/d', 10);
+        $offset = max(0, input('post.offset/d', 0));
+        $limit = max(0, min(10000, input('post.limit/d', 10)));
         $sort = input('post.sortName', null, 'trim');
         $orderDir = strtolower(input('post.sortOrder', 'desc')) === 'asc' ? 'asc' : 'desc';
 

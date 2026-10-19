@@ -1,0 +1,108 @@
+{extend name="common/layout" /}
+{block name="title"}后台批量任务{/block}
+{block name="main"}
+<div class="row"><div class="col-xs-12">
+  <div class="panel panel-default panel-intro">
+    <div class="panel-heading"><strong>后台批量任务</strong></div>
+    <div class="panel-body">
+      <p>在域名的“变更与快照”中预览记录，再加入后台任务。提交后可关闭页面；列表每 15 秒自动刷新。</p>
+      <p class="text-muted">取消会保留已完成的变更。失败任务可在创建后 24 小时内重试，继续处理尚未完成的记录。</p>
+      <form id="newTaskForm" class="form-inline" style="margin-bottom:16px">
+        <div class="form-group"><label for="taskDomain">选择域名</label> <select id="taskDomain" class="form-control" style="max-width:100%"><option value="">请选择域名</option>{foreach $domains as $domain}<option value="{$domain.id}">{$domain.name}</option>{/foreach}</select></div>
+        <button type="submit" class="btn btn-primary"><i class="fa fa-plus"></i> 预览新任务</button>
+        <button type="button" id="refreshTasks" class="btn btn-default"><i class="fa fa-refresh"></i> 刷新</button>
+      </form>
+      <div id="batchMessage" role="status" aria-live="polite"></div>
+      <table id="listTable"></table>
+    </div>
+  </div>
+</div></div>
+<div class="modal fade" id="taskModal" tabindex="-1" role="dialog" aria-labelledby="taskTitle"><div class="modal-dialog modal-lg" role="document"><div class="modal-content">
+  <div class="modal-header"><button type="button" class="close" data-dismiss="modal" aria-label="关闭"><span aria-hidden="true">&times;</span></button><h4 id="taskTitle" class="modal-title">任务详情</h4></div>
+  <div class="modal-body">
+    <p id="taskSummary" style="overflow-wrap:anywhere"></p>
+    <p id="taskTimes" class="text-muted"></p>
+    <div id="taskError"></div>
+    <p id="taskSnapshot"></p>
+    <div class="table-responsive"><table class="table table-striped"><thead><tr><th>变更序号</th><th>结果</th><th>说明</th></tr></thead><tbody id="taskResults"></tbody></table></div>
+    <p id="taskPending" class="text-muted"></p>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">关闭</button></div>
+</div></div></div>
+{/block}
+{block name="script"}
+<script src="/static/js/bootstrap-table-1.21.4.min.js"></script>
+<script src="/static/js/custom.js?v={:config('app.version')}"></script>
+<script>
+$(function () {
+  'use strict';
+  var busy = false, currentTask = null;
+  var states = ['等待执行', '执行中', '已完成', '执行失败', '已取消'];
+  var colors = ['default', 'info', 'success', 'danger', 'warning'];
+  function validId(value) { var id = Number(value); return Number.isSafeInteger(id) && id > 0 ? id : null; }
+  function count(value) { var n = Number(value); return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0; }
+  function stateText(task) { return Number(task.cancel_requested) && Number(task.status) === 1 ? '正在取消' : (states[Number(task.status)] || '未知状态'); }
+  function message(text, error) { $('#batchMessage').empty().append($('<div>').addClass('alert ' + (error ? 'alert-danger' : 'alert-success')).text(text)); }
+  function refresh() { $('#listTable').bootstrapTable('refresh', {silent: true}); }
+  function details(id) {
+    currentTask = id;
+    $('#taskTitle').text('任务 #' + id); $('#taskSummary').text('正在加载…'); $('#taskTimes,#taskError,#taskSnapshot,#taskResults,#taskPending').empty();
+    $('#taskModal').modal('show');
+    $.ajax({
+      url: '/batch/details', type: 'POST', dataType: 'json', data: {id: id}}).done(function (response) {
+      if (currentTask !== id) return;
+      if (response.code !== 0 || !response.task) { $('#taskSummary').text(response.msg || '无法获取任务详情'); return; }
+      var task = response.task, results = Array.isArray(response.results) ? response.results : [];
+      $('#taskTitle').text('任务 #' + id + ' · ' + task.name);
+      $('#taskSummary').text(stateText(task) + ' · 已完成 ' + count(task.completed) + ' / ' + count(task.total) + ' 项 · 已尝试 ' + count(task.attempts) + ' 次');
+      $('#taskTimes').text('创建：' + (task.addtime || '—') + '　更新：' + (task.updatetime || '—') + '　到期：' + (task.expiretime || '—'));
+      if (task.error) $('#taskError').append($('<div>').addClass('alert alert-danger').css('overflow-wrap', 'anywhere').text(task.error));
+      var did = validId(task.did), snapshotId = validId(task.snapshot_id);
+      if (did && snapshotId) $('#taskSnapshot').append($('<a>').attr('href', '/record/history/' + did).text('查看执行前快照 #' + snapshotId));
+      results.forEach(function (result) {
+        var tr = $('<tr>').appendTo('#taskResults');
+        $('<td>').text(count(result.index) + 1).appendTo(tr);
+        $('<td>').text(result.success ? '成功' : '失败').addClass(result.success ? 'text-success' : 'text-danger').appendTo(tr);
+        $('<td>').css({'overflow-wrap': 'anywhere', 'white-space': 'pre-wrap', 'max-width': '480px'}).text(result.success ? '已完成' : (result.message || '执行失败')).appendTo(tr);
+      });
+      $('#taskPending').text(results.length ? '尚未完成的变更：' + Math.max(0, count(task.total) - count(task.completed)) + ' 项。' : '暂无已执行记录。');
+    }).fail(function () { if (currentTask === id) $('#taskSummary').text('请求失败，请关闭后重试'); });
+  }
+  $('#listTable').bootstrapTable({
+    url: '/batch/data', method: 'post', contentType: 'application/x-www-form-urlencoded', pageSize: 20, pageList: [10, 20, 50, 100],
+    classes: 'table table-striped table-hover', pagination: true, sidePagination: 'server', escape: true, showColumns: false, showToggle: false, showFullscreen: false, showJumpTo: false,
+    columns: [
+      {field: 'id', title: 'ID', sortable: false},
+      {field: 'name', title: '任务名称', sortable: false, cellStyle: function () { return {
+        css: {'max-width': '240px', 'white-space': 'normal', 'overflow-wrap': 'anywhere'}}; }},
+      {field: 'status', title: '状态', sortable: false, escape: false, formatter: function (value, row) { return '<span class="label label-' + (colors[Number(value)] || 'default') + '">' + stateText(row) + '</span>'; }},
+      {field: 'completed', title: '进度', sortable: false, escape: false, formatter: function (value, row) { return count(value) + ' / ' + count(row.total); }},
+      {field: 'addtime', title: '创建时间', sortable: false},
+      {field: 'updatetime', title: '更新时间', sortable: false},
+      {field: 'action', title: '操作', sortable: false, escape: false, formatter: function (value, row) {
+        var id = validId(row.id), did = validId(row.did); if (!id) return '';
+        var html = '<button type="button" class="btn btn-xs btn-default task-details" data-id="' + id + '">详情</button> ';
+        if (did) html += '<a class="btn btn-xs btn-default" href="/record/' + did + '">解析</a> ';
+        if (Number(row.status) === 3 && !Number(row.cancel_requested)) html += '<button type="button" class="btn btn-xs btn-warning task-operation" data-action="retry" data-id="' + id + '">重试</button> ';
+        if ([0, 1, 3].indexOf(Number(row.status)) !== -1 && !Number(row.cancel_requested)) html += '<button type="button" class="btn btn-xs btn-danger task-operation" data-action="cancel" data-id="' + id + '">取消</button>';
+        return html;
+      }}
+    ],
+    onLoadSuccess: function (response) { if (response.code && response.code !== 0) message(response.msg || '无法加载任务', true); },
+    onLoadError: function () { message('加载任务失败，请重试', true); }
+  });
+  $('#newTaskForm').on('submit', function (event) { event.preventDefault(); var did = validId($('#taskDomain').val()); if (!did) { message('请先选择域名', true); return; } window.location.href = '/record/history/' + did; });
+  $('#refreshTasks').on('click', refresh);
+  $('#listTable').on('click', '.task-details', function () { var id = validId($(this).data('id')); if (id) details(id); });
+  $('#listTable').on('click', '.task-operation', function () {
+    var button = $(this), id = validId(button.data('id')), action = button.data('action'); if (busy || !id || ['retry', 'cancel'].indexOf(action) === -1) return;
+    busy = true; $('#listTable .task-operation').prop('disabled', true);
+    $.ajax({
+      url: '/batch/task/' + action, type: 'POST', dataType: 'json', data: {id: id}}).done(function (response) { message(response.code === 0 ? (action === 'cancel' ? '已请求取消；已完成的变更会保留。' : '已重新排队，将继续处理未完成的变更。') : (response.msg || '操作失败'), response.code !== 0); refresh(); }).fail(function () { message('请求中断，请刷新任务状态后重试', true); }).always(function () { busy = false; $('#listTable .task-operation').prop('disabled', false); });
+  });
+  $('#taskModal').on('hidden.bs.modal', function () { currentTask = null; });
+  var timer = window.setInterval(function () { if (!document.hidden && !busy) refresh(); }, 15000);
+  $(window).on('pagehide', function () { window.clearInterval(timer); });
+});
+</script>
+{/block}

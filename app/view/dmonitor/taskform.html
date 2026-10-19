@@ -153,8 +153,8 @@
 <script src="/static/js/bootstrapValidator.min.js?v=2"></script>
 <script>
 var action = '{$action}';
-var info = {$info|json_encode|raw};
-var domainList = {$domains|json_encode|raw};
+var info = {:json_encode($info, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var domainList = {:json_encode($domains, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 var support_ping = '{$support_ping}';
 new Vue({
     el: '#app',
@@ -251,7 +251,7 @@ new Vue({
                             }
                         }
                     }else{
-                        layer.alert(data.msg, {icon:2});
+                        layer.alert(htmlEscape(data.msg), {icon:2});
                     }
                 },
                 error:function(data){
@@ -275,14 +275,14 @@ new Vue({
                 success: function(data) {
                     layer.close(ii);
                     if(data.code == 0){
-                        layer.alert(data.msg, {icon: 1}, function(){
+                        layer.alert(htmlEscape(data.msg), {icon: 1}, function(){
                             if(document.referrer.indexOf('task?') > 0)
                                 window.location.href = document.referrer;
                             else
                                 window.location.href = '/dmonitor/task';
                         });
                     }else{
-                        layer.alert(data.msg, {icon: 2});
+                        layer.alert(htmlEscape(data.msg), {icon: 2});
                     }
                 },
                 error: function(data){

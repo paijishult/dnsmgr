@@ -114,7 +114,7 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
   </div>
   <div class="btn-group" role="group">
 	<button type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">日志 <span class="caret"></span></button>
-    <ul class="dropdown-menu"><li><a href="/log?domain={$domainName}">本站日志</a></li></ul>
+    <ul class="dropdown-menu"><li><a href="/log?domain={$domainName}">本站日志</a></li><li><a href="/record/history/{$domainId}">变更历史与快照</a></li></ul>
   </div>
 </form>
 <div class="table-responsive" style="margin-top:15px;">
@@ -230,9 +230,9 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
 <script src="/static/js/layer/layer.js"></script>
 <script src="/static/js/bootstrapValidator.min.js"></script>
 <script>
-var recordLine = {$recordLine|json_encode|raw};
-var dnsconfig = {$dnsconfig|json_encode|raw};
-var defaultLine = recordLine[0].id;
+var recordLine = {:json_encode($recordLine, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var dnsconfig = {:json_encode($dnsconfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var defaultLine = recordLine.length ? recordLine[0].id : 'default';
 new Vue({
   el: '#app',
   data: function () {
@@ -412,7 +412,7 @@ new Vue({
         success : function(data) {
           layer.close(ii);
           if(data.code == 0){
-            layer.alert(data.msg,{
+            layer.alert(htmlEscape(data.msg),{
               icon: 1,
               closeBtn: false
             }, function(){
@@ -425,7 +425,7 @@ new Vue({
               }
             });
           }else{
-            layer.alert(data.msg, {icon: 2})
+            layer.alert(htmlEscape(data.msg), {icon: 2})
           }
         }
       });
@@ -446,7 +446,7 @@ new Vue({
 				    layer.msg(status=='1'?'开启成功':'暂停成功', {icon: 1, time:500});
             vm.loadChildren(parentid);
           }else{
-            layer.alert(data.msg, {icon: 2})
+            layer.alert(htmlEscape(data.msg), {icon: 2})
           }
         }
       });
@@ -468,7 +468,7 @@ new Vue({
   				    layer.msg('删除成功', {icon: 1, time:800});
               vm.loadChildren(parentid);
             }else{
-              layer.alert(data.msg, {icon: 2})
+              layer.alert(htmlEscape(data.msg), {icon: 2})
             }
           }
         });
@@ -491,7 +491,7 @@ new Vue({
   				    layer.msg('删除成功', {icon: 1, time:800});
               vm.loadParents();
             }else{
-              layer.alert(data.msg, {icon: 2})
+              layer.alert(htmlEscape(data.msg), {icon: 2})
             }
           }
         });
@@ -505,7 +505,7 @@ new Vue({
         area: ['350px'],
         closeBtn: 2,
         title: '编辑备注',
-        content: '<div style="padding:15px"><div class="form-group"><input class="form-control" type="text" name="remark" value="'+(p.Remark==null?'':p.Remark)+'" autocomplete="off" placeholder="备注信息"></div></div>',
+        content: '<div style="padding:15px"><div class="form-group"><input class="form-control" type="text" name="remark" value="'+(p.Remark==null?'':htmlEscape(p.Remark))+'" autocomplete="off" placeholder="备注信息"></div></div>',
         btn: ['确认', '取消'],
         yes: function(){
           var remark = $("input[name='remark']").val();
@@ -522,7 +522,7 @@ new Vue({
                 layer.msg('保存成功', {icon: 1, time:800});
                 vm.loadParents();
               }else{
-                layer.alert(data.msg, {icon:2});
+                layer.alert(htmlEscape(data.msg), {icon:2});
               }
             },
             error:function(data){

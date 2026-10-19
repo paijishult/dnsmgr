@@ -19,7 +19,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  regression-checks:
+    uses: ./.github/workflows/checks.yml
   build-and-push:
+    needs: regression-checks
     runs-on: ubuntu-latest
     timeout-minutes: 150
     permissions:
@@ -63,6 +66,43 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build native image for runtime checks
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker/Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: dnsmgr-smoke:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Check container startup and installer
+        env:
+          IMAGE_TAG: dnsmgr-smoke:${{ github.sha }}
+        run: |
+          docker run --detach --name dnsmgr-smoke --publish 127.0.0.1:18081:80 "$IMAGE_TAG"
+          docker exec dnsmgr-smoke nginx -t
+          for attempt in $(seq 1 30); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' dnsmgr-smoke)" = healthy ]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' dnsmgr-smoke)" = healthy
+          curl --fail --silent --show-error --location --max-time 20 http://127.0.0.1:18081/install > "$RUNNER_TEMP/dnsmgr-install.html"
+          test -s "$RUNNER_TEMP/dnsmgr-install.html"
+          grep -q '安装' "$RUNNER_TEMP/dnsmgr-install.html"
+
+      - name: Clean up test container
+        if: always()
+        run: |
+          docker logs dnsmgr-smoke 2>&1 || true
+          docker rm --force dnsmgr-smoke 2>/dev/null || true
 
       - name: Build and push
         uses: docker/build-push-action@v6

@@ -66,7 +66,7 @@ class dnspod implements DnsInterface
     public function getDomainRecords($PageNumber = 1, $PageSize = 20, $KeyWord = null, $SubDomain = null, $Value = null, $Type = null, $Line = null, $Status = null, $SortField = null, $SortOrder = 'asc')
     {
         $offset = ($PageNumber - 1) * $PageSize;
-        $groupid = request()->post('groupid');
+        $groupid = \app\lib\RecordGuard::isFullZoneRead() ? null : request()->post('groupid');
         if (!isNullOrEmpty($Status) || !isNullOrEmpty($Value) || !empty($groupid)) {
             $action = 'DescribeRecordFilterList';
             $param = ['Domain' => $this->domain, 'Offset' => $offset, 'Limit' => $PageSize, 'RecordValue' => $Value];

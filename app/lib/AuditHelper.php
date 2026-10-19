@@ -449,10 +449,10 @@ class AuditHelper
             }
         };
         try {
-            foreach (Db::name('account')->column('config') as $config) {
-                $collect(json_decode((string)$config, true));
+            foreach (self::accountRows(false) as $row) {
+                $collect(json_decode((string)$row['config'], true));
             }
-            foreach (Db::name('cert_account')->field('config,ext')->select() as $row) {
+            foreach (self::accountRows(true) as $row) {
                 $collect(json_decode((string)$row['config'], true));
                 $collect(json_decode((string)$row['ext'], true));
             }
@@ -498,20 +498,25 @@ class AuditHelper
             }
         };
         try {
-            foreach (array_merge(Db::name('account')->column('name'), Db::name('cert_account')->column('name')) as $name) {
+            foreach (array_merge(self::accountRows(false), self::accountRows(true)) as $row) {
+                $name = $row['name'];
                 if (is_string($name) && str_contains($name, '://') && strlen(trim($name)) >= 10) $values[] = rtrim(trim($name), '/');
-            }
-            foreach (Db::name('account')->column('config') as $config) {
-                $collect(json_decode((string)$config, true));
-            }
-            foreach (Db::name('cert_account')->column('config') as $config) {
-                $collect(json_decode((string)$config, true));
+                $collect(json_decode((string)$row['config'], true));
             }
         } catch (\Throwable $e) {
         }
         $values = array_values(array_unique($values));
         usort($values, fn($a, $b) => strlen($b) - strlen($a));
         return $cache = $values;
+    }
+
+    /** Request-local reuse only: credentials are never written to a shared cache. */
+    private static function accountRows(bool $cert): array
+    {
+        static $rows = [];
+        $table = $cert ? 'cert_account' : 'account';
+        if (!array_key_exists($table, $rows)) $rows[$table] = Db::name($table)->field($cert ? 'name,config,ext' : 'name,config')->select()->toArray();
+        return $rows[$table];
     }
 
     /**

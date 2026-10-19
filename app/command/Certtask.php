@@ -30,6 +30,8 @@ class Certtask extends Command
     {
         $res = Db::name('config')->cache('configs', 0)->column('value', 'key');
         Config::set($res, 'sys');
+        \app\service\FeatureMigrationService::ensure();
+        (new \app\service\BatchTaskService())->execute();
 
         (new ScheduleService())->execute();
         $res = (new OptimizeService())->execute();

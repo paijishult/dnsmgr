@@ -9,7 +9,7 @@ function get_curl($url, $post = 0, $referer = 0, $cookie = 0, $ua = 0, $nobody =
 {
     $options = [
         'timeout' => 10,
-        'verify' => false,
+        'verify' => true,
         'headers' => [
             'User-Agent' => $ua ?: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
         ],
@@ -332,7 +332,7 @@ function check_proxy($url, $proxy_server, $proxy_port, $type, $proxy_user, $prox
         'proxy' => $proxy_string,
         'timeout' => 3,
         'connect_timeout' => 3,
-        'verify' => false,
+        'verify' => true,
         'headers' => [
             'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
         ]
@@ -437,7 +437,7 @@ function http_request($url, $data = null, $referer = null, $cookie = null, $head
         'timeout' => $timeout,
         'connect_timeout' => $timeout,
         'allow_redirects' => false,
-        'verify' => false,
+        'verify' => true,
         'headers' => [
             'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
         ],

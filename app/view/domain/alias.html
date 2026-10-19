@@ -84,12 +84,12 @@ function addAlias() {
 		success: function(data) {
 			layer.close(ii);
 			if (data.code == 0) {
-				layer.alert(data.msg, { icon: 1 }, function() {
+				layer.alert(htmlEscape(data.msg), { icon: 1 }, function() {
 					layer.closeAll();
 					location.reload();
 				});
 			} else {
-				layer.alert(data.msg || '添加失败', { icon: 2 });
+				layer.alert(htmlEscape(data.msg) || '添加失败', { icon: 2 });
 			}
 		},
 		error: function() {
@@ -112,12 +112,12 @@ function delAlias(id) {
 				layer.close(ii);
 				layer.close(idx);
 				if (data.code == 0) {
-					layer.alert(data.msg, { icon: 1 }, function() {
+					layer.alert(htmlEscape(data.msg), { icon: 1 }, function() {
 						layer.closeAll();
 						location.reload();
 					});
 				} else {
-					layer.alert(data.msg || '删除失败', { icon: 2 });
+					layer.alert(htmlEscape(data.msg) || '删除失败', { icon: 2 });
 				}
 			},
 			error: function() {

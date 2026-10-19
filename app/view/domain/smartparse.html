@@ -225,9 +225,9 @@
 var domainList = [];
 {foreach $domainList as $domain}
 domainList.push({
-	id: '{$domain.id}',
-	name: '{$domain.name}',
-	dnsType: '{$domain.dnsType}'
+	id: {:json_encode($domain['id'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)},
+	name: {:json_encode($domain['name'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)},
+	dnsType: {:json_encode($domain['dnsType'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)}
 });
 {/foreach}
 
@@ -261,7 +261,7 @@ $(document).ready(function(){
 						$.each(data.data.recordLine, function(index, item){
 							if(item.parent == null){
 								if(!firstOption) firstOption = item.id;
-								lineOptions += '<option value="'+item.id+'">'+item.name+'</option>';
+								lineOptions += '<option value="'+htmlEscape(item.id)+'">'+htmlEscape(item.name)+'</option>';
 							}
 						});
 						$('#batch_line_list').html('<select name="defaultLine" id="defaultLineSelect" class="form-control" onchange="changeBatchLine(this)">'+lineOptions+'</select>');
@@ -270,7 +270,7 @@ $(document).ready(function(){
 							$('#defaultLineSelect').val(firstOption).trigger('change');
 						}
 					}else{
-						layer.alert(data.msg, {icon: 2});
+						layer.alert(htmlEscape(data.msg), {icon: 2});
 					}
 				},
 				error : function() {
@@ -295,7 +295,7 @@ function changeBatchLine(obj){
 		if(tempLine.length > 0){
 			var option = line.substr(0,2) == 'N.' ? '' : '<option value="'+line+'">子集线路（非必填）</option>';
 			$.each(tempLine, function(index, item){
-				option += '<option value="'+item.id+'">'+item.name+'</option>';
+				option += '<option value="'+htmlEscape(item.id)+'">'+htmlEscape(item.name)+'</option>';
 			})
 			$("#batch_line_list").append('<select name="defaultLine" class="form-control" onchange="changeBatchLine(this)">'+option+'</select>');
 		}
@@ -480,7 +480,7 @@ function previewBatchData(){
 	});
 	
 	if(errors.length > 0){
-		layer.alert('发现以下错误：\n\n' + errors.join('\n'), {icon: 2});
+		layer.alert('发现以下错误：\n\n' + htmlEscape(errors.join('\n')), {icon: 2});
 		return;
 	}
 	
@@ -541,12 +541,12 @@ function renderPreview(){
 		
 		html += '<tr>';
 		html += '<td style="text-align:center;">' + row.lineNumber + '</td>';
-		html += '<td>' + (row.host == '@' ? '@ (主域名)' : row.host) + '</td>';
-		html += '<td style="text-align:center;"><span class="label label-primary">' + row.type + '</span></td>';
-		html += '<td title="' + htmlEscape(row.value) + '">' + row.value + '</td>';
-		html += '<td><strong>' + row.domainName + '</strong></td>';
-		html += '<td style="text-align:center;">' + (row.line ? row.line : '默认') + '</td>';
-		html += '<td style="text-align:center;">' + row.ttl + '</td>';
+		html += '<td>' + (row.host == '@' ? '@ (主域名)' : htmlEscape(row.host)) + '</td>';
+		html += '<td style="text-align:center;"><span class="label label-primary">' + htmlEscape(row.type) + '</span></td>';
+		html += '<td title="' + htmlEscape(row.value) + '">' + htmlEscape(row.value) + '</td>';
+		html += '<td><strong>' + htmlEscape(row.domainName) + '</strong></td>';
+		html += '<td style="text-align:center;">' + (row.line ? htmlEscape(row.line) : '默认') + '</td>';
+		html += '<td style="text-align:center;">' + htmlEscape(row.ttl) + '</td>';
 		html += '<td style="text-align:center;">' + statusHtml + '</td>';
 		html += '</tr>';
 	});
@@ -814,7 +814,7 @@ function executeBatchAdd(){
 }
 
 function htmlEscape(str) {
-    return String(str)
+    return String(str == null ? '' : str)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')

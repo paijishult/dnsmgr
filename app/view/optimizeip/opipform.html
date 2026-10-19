@@ -105,7 +105,7 @@
 <script src="/static/js/bootstrapValidator.min.js"></script>
 <script>
 var action = '{$action}';
-var info = {$info|json_encode|raw};
+var info = {:json_encode($info, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 new Vue({
     el: '#app',
     data: {
@@ -177,14 +177,14 @@ new Vue({
                 success: function(data) {
                     layer.close(ii);
                     if(data.code == 0){
-                        layer.alert(data.msg, {icon: 1}, function(){
+                        layer.alert(htmlEscape(data.msg), {icon: 1}, function(){
                             if(document.referrer.indexOf('/opiplist?') > 0)
                                 window.location.href = document.referrer;
                             else
                                 window.location.href = '/optimizeip/opiplist';
                         });
                     }else{
-                        layer.alert(data.msg, {icon: 2});
+                        layer.alert(htmlEscape(data.msg), {icon: 2});
                     }
                 },
                 error: function(data){

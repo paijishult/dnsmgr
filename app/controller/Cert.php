@@ -319,7 +319,8 @@ class Cert extends BaseController
         } else {
             $select->order('A.id', 'desc');
         }
-        $rows = $select->fieldRaw('A.*,B.type,B.remark aremark')->limit($offset, $limit)->select();
+        $rows = $select->fieldRaw('A.*,B.type,B.remark aremark')->limit($offset, $limit)->select()->toArray();
+        $domainsByOrder = $this->orderDomainMap(array_column($rows, 'id'));
 
         $list = [];
         foreach ($rows as $row) {
@@ -330,7 +331,7 @@ class Cert extends BaseController
                 $row['typename'] = null;
             }
             unset($row['fullchain'], $row['privatekey']);
-            $row['domains'] = Db::name('cert_domain')->where('oid', $row['id'])->order('sort', 'ASC')->column('domain');
+            $row['domains'] = $domainsByOrder[$row['id']] ?? [];
             $row['end_day'] = $row['expiretime'] ? ceil((strtotime($row['expiretime']) - time()) / 86400) : null;
             if ($row['error']) $row['error'] = htmlspecialchars(str_replace("'", "\\'", $row['error']));
             $list[] = $row;
@@ -353,6 +354,16 @@ class Cert extends BaseController
     }
 
     public function order_op()
+    {
+        try {
+            if (checkPermission(2) && in_array(input('param.action'), ['edit', 'setauto'], true)) {
+                return $this->certificateMutation('cert-order:' . input('post.id/d'), fn() => $this->orderOperation());
+            }
+            return $this->orderOperation();
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+    }
+
+    private function orderOperation()
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
@@ -513,18 +524,14 @@ class Cert extends BaseController
                 ];
             }
             Db::name('cert_domain')->insertAll($domainList);
+            if (isset($order['fullchain']) && $order['fullchain'] !== ($row['fullchain'] ?? null)) {
+                Db::name('cert_deploy')->where('oid', $id)->update(['status' => 0, 'retry' => 0, 'retrytime' => null, 'issend' => 0]);
+            }
             Db::commit();
             return json(['code' => 0, 'msg' => '修改证书订单成功！']);
         } elseif ($action == 'del') {
             $id = input('post.id/d');
-            $dcount = DB::name('cert_deploy')->where('oid', $id)->count();
-            if ($dcount > 0) return json(['code' => -1, 'msg' => '该证书关联了自动部署任务，无法删除']);
-            try {
-                (new CertOrderService($id))->cancel();
-            } catch (Exception $e) {
-            }
-            Db::name('cert_order')->where('id', $id)->delete();
-            Db::name('cert_domain')->where('oid', $id)->delete();
+            $this->deleteCertificateOrder($id);
             return json(['code' => 0]);
         } elseif ($action == 'setauto') {
             $id = input('post.id/d');
@@ -534,7 +541,7 @@ class Cert extends BaseController
         } elseif ($action == 'reset') {
             $id = input('post.id/d');
             try {
-                $service = new CertOrderService($id);
+                $service = new CertOrderService($id, $this->certificateOrderAuthorization());
                 $service->cancel();
                 $service->reset();
                 return json(['code' => 0]);
@@ -544,7 +551,7 @@ class Cert extends BaseController
         } elseif ($action == 'revoke') {
             $id = input('post.id/d');
             try {
-                $service = new CertOrderService($id);
+                $service = new CertOrderService($id, $this->certificateOrderAuthorization());
                 $service->revoke();
                 return json(['code' => 0]);
             } catch (Exception $e) {
@@ -567,19 +574,14 @@ class Cert extends BaseController
             if (!is_array($ids) || empty($ids)) return json(['code' => -1, 'msg' => '请选择要操作的证书订单']);
             $success = 0;
             foreach ($ids as $id) {
+                $id = (int)$id;
+                try {
                 if (input('post.act') == 'delete') {
-                    $dcount = DB::name('cert_deploy')->where('oid', $id)->count();
-                    if ($dcount > 0) continue;
-                    try {
-                        (new CertOrderService($id))->cancel();
-                    } catch (Exception $e) {
-                    }
-                    Db::name('cert_order')->where('id', $id)->delete();
-                    Db::name('cert_domain')->where('oid', $id)->delete();
+                    $this->deleteCertificateOrder($id);
                     $success++;
                 } elseif (input('post.act') == 'reset') {
                     try {
-                        $service = new CertOrderService($id);
+                        $service = new CertOrderService($id, $this->certificateOrderAuthorization());
                         $service->cancel();
                         $service->reset();
                         $success++;
@@ -587,9 +589,10 @@ class Cert extends BaseController
                     }
                 } elseif (input('post.act') == 'open' || input('post.act') == 'close') {
                     $isauto = input('post.act') == 'open' ? 1 : 0;
-                    Db::name('cert_order')->where('id', $id)->update(['isauto' => $isauto]);
+                    $this->certificateMutation('cert-order:' . $id, fn() => Db::name('cert_order')->where('id', $id)->update(['isauto' => $isauto]));
                     $success++;
                 }
+                } catch (\Throwable $e) { /* Busy orders are retained for a later retry. */ }
             }
             return json(['code' => 0, 'msg' => '成功操作' . $success . '个证书订单']);
         }
@@ -698,7 +701,7 @@ class Cert extends BaseController
         if (!$this->apiOrderAllowed($id)) return json(['code' => -1, 'msg' => '证书订单不存在']);
         $this->apiLog($reset == 1 ? '重新申请证书' : '执行证书申请', '订单ID:' . $id);
         try {
-            $service = new CertOrderService($id);
+            $service = new CertOrderService($id, $this->certificateOrderAuthorization());
             if ($reset == 1) {
                 $service->reset();
             }
@@ -797,7 +800,8 @@ class Cert extends BaseController
         } else {
             $select->order('A.id', 'desc');
         }
-        $rows = $select->fieldRaw('A.*,B.type,B.remark aremark,B.name aname,D.type certtype,D.id certaid')->limit($offset, $limit)->select();
+        $rows = $select->fieldRaw('A.*,B.type,B.remark aremark,B.name aname,D.type certtype,D.id certaid')->limit($offset, $limit)->select()->toArray();
+        $domainsByOrder = $this->orderDomainMap(array_column($rows, 'oid'));
 
         $list = [];
         foreach ($rows as $row) {
@@ -810,8 +814,10 @@ class Cert extends BaseController
             } else {
                 $row['certtypename'] = '手动续期';
             }
-            $row['domains'] = Db::name('cert_domain')->where('oid', $row['oid'])->order('sort', 'ASC')->column('domain');
+            $row['domains'] = $domainsByOrder[$row['oid']] ?? [];
             if ($row['error']) $row['error'] = htmlspecialchars(str_replace("'", "\\'", $row['error']));
+            $info = json_decode($row['info'] ?? '', true);
+            $row['verification'] = isset($info['_tls_verification']) && is_array($info['_tls_verification']) ? $info['_tls_verification'] : null;
             unset($row['info']);
             if ($this->request->isApi) {
                 // API只输出脱敏后的任务配置与部署账户名称
@@ -828,6 +834,21 @@ class Cert extends BaseController
 
     public function deploy_op()
     {
+        try {
+            $action = input('param.action');
+            if (checkPermission(2) && in_array($action, ['edit', 'del', 'setactive'], true)) {
+                return $this->certificateMutation('cert-deploy:' . input('post.id/d'), function () use ($action) {
+                    if ($action === 'edit') return $this->certificateMutation('cert-order:' . input('post.oid/d'), fn() => $this->deployOperation());
+                    return $this->deployOperation();
+                });
+            }
+            if (checkPermission(2) && $action === 'add') return $this->certificateMutation('cert-order:' . input('post.oid/d'), fn() => $this->deployOperation());
+            return $this->deployOperation();
+        } catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+    }
+
+    private function deployOperation()
+    {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
         if ($this->request->isApi) {
@@ -835,11 +856,16 @@ class Cert extends BaseController
             if ($res !== true) return json(['code' => -1, 'msg' => $res]);
         }
 
+        $normalizedConfig = null;
+        if (in_array($action, ['add', 'edit'], true)) {
+            try { $normalizedConfig = $this->normalizeDeployConfig(input('post.config'), input('post.aid/d'), input('post.oid/d')); }
+            catch (\Throwable $e) { return json(['code' => -1, 'msg' => $e->getMessage()]); }
+        }
         if ($action == 'add') {
             $task = [
                 'aid' => input('post.aid/d'),
                 'oid' => input('post.oid/d'),
-                'config' => input('post.config', null, 'trim'),
+                'config' => $normalizedConfig,
                 'remark' => input('post.remark', null, 'trim'),
                 'addtime' => date('Y-m-d H:i:s'),
                 'status' => 0,
@@ -856,10 +882,25 @@ class Cert extends BaseController
             $task = [
                 'aid' => input('post.aid/d'),
                 'oid' => input('post.oid/d'),
-                'config' => input('post.config', null, 'trim'),
+                'config' => $normalizedConfig,
                 'remark' => input('post.remark', null, 'trim'),
             ];
             if (empty($task['aid']) || empty($task['oid']) || empty($task['config'])) return json(['code' => -1, 'msg' => '必填参数不能为空']);
+            $oldConfig = json_decode($row['config'], true) ?: [];
+            $newConfig = json_decode($task['config'], true);
+            $oldVerification = $oldConfig['_verify_tls'] ?? ['enabled' => false];
+            $newVerification = $newConfig['_verify_tls'];
+            unset($oldConfig['_verify_tls'], $newConfig['_verify_tls']);
+            if ((int)$row['aid'] !== (int)$task['aid'] || (int)$row['oid'] !== (int)$task['oid'] || $oldConfig != $newConfig) {
+                $task += ['status' => 0, 'info' => null, 'retry' => 0, 'retrytime' => null, 'error' => null, 'issend' => 0];
+            } elseif ($oldVerification != $newVerification && in_array((int)$row['status'], [1, 2], true)) {
+                $info = json_decode($row['info'] ?? '', true) ?: [];
+                if (!empty($newVerification['enabled'])) {
+                    $pem = Db::name('cert_order')->where('id', $task['oid'])->value('fullchain');
+                    $info['_tls_verification'] = ['status' => 'pending', 'host' => $newVerification['host'], 'port' => $newVerification['port'], 'expected_sha256' => \app\service\CertVerificationService::fingerprint((string)$pem), 'observed_sha256' => null, 'checked_at' => null, 'error' => null];
+                } else unset($info['_tls_verification']);
+                $task += ['status' => empty($newVerification['enabled']) ? 1 : 2, 'info' => json_encode($info), 'retry' => 0, 'retrytime' => null, 'error' => null, 'issend' => 0];
+            }
             Db::name('cert_deploy')->where('id', $id)->update($task);
             return json(['code' => 0, 'msg' => '修改自动部署任务成功！']);
         } elseif ($action == 'del') {
@@ -874,7 +915,7 @@ class Cert extends BaseController
         } elseif ($action == 'reset') {
             $id = input('post.id/d');
             try {
-                $service = new CertDeployService($id);
+                $service = new CertDeployService($id, $this->certificateOrderAuthorization());
                 $service->reset();
                 return json(['code' => 0]);
             } catch (Exception $e) {
@@ -903,24 +944,42 @@ class Cert extends BaseController
                 if (!$cert) return json(['code' => -1, 'msg' => '证书订单不存在']);
             }
             foreach ($ids as $id) {
+                $id = (int)$id;
+                try {
                 if (input('post.act') == 'delete') {
-                    Db::name('cert_deploy')->where('id', $id)->delete();
+                    $this->certificateMutation('cert-deploy:' . $id, function () use ($id) {
+                        $this->authorizeDeploymentMutation($id);
+                        Db::name('cert_deploy')->where('id', $id)->delete();
+                    });
                     $success++;
                 } elseif (input('post.act') == 'reset') {
                     try {
-                        $service = new CertDeployService($id);
+                        $service = new CertDeployService($id, $this->certificateOrderAuthorization());
                         $service->reset();
                         $success++;
                     } catch (Exception $e) {
                     }
                 } elseif (input('post.act') == 'open' || input('post.act') == 'close') {
                     $active = input('post.act') == 'open' ? 1 : 0;
-                    Db::name('cert_deploy')->where('id', $id)->update(['active' => $active]);
+                    $this->certificateMutation('cert-deploy:' . $id, function () use ($id, $active) {
+                        $this->authorizeDeploymentMutation($id);
+                        Db::name('cert_deploy')->where('id', $id)->update(['active' => $active]);
+                    });
                     $success++;
                 } elseif (input('post.act') == 'cert') {
-                    Db::name('cert_deploy')->where('id', $id)->update(['oid' => $certid]);
+                    $this->certificateMutation('cert-deploy:' . $id, function () use ($id, $certid) {
+                        $this->authorizeDeploymentMutation($id);
+                        $this->certificateMutation('cert-order:' . $certid, function () use ($id, $certid) {
+                            if (!$this->apiOrderAllowed($certid)) throw new \RuntimeException('证书订单不存在');
+                            $task = Db::name('cert_deploy')->where('id', $id)->find();
+                            if (!$task) throw new \RuntimeException('自动部署任务不存在');
+                            $config = $this->normalizeDeployConfig($task['config'], (int)$task['aid'], $certid);
+                            Db::name('cert_deploy')->where('id', $id)->update(['oid' => $certid, 'config' => $config, 'status' => 0, 'retry' => 0, 'retrytime' => null, 'error' => null, 'issend' => 0]);
+                        });
+                    });
                     $success++;
                 }
+                } catch (\Throwable $e) { /* Busy or invalid tasks remain unchanged. */ }
             }
             return json(['code' => 0, 'msg' => '成功操作' . $success . '个任务']);
         }
@@ -944,7 +1003,7 @@ class Cert extends BaseController
             $this->apiLog('执行证书部署', '任务ID:' . $id);
         }
         try {
-            $service = new CertDeployService($id);
+            $service = new CertDeployService($id, $this->certificateOrderAuthorization());
             if ($reset == 1) {
                 $service->reset();
             }
@@ -978,8 +1037,10 @@ class Cert extends BaseController
         View::assign('accounts', $accounts);
 
         $orders = [];
-        foreach (Db::name('cert_order')->alias('A')->leftJoin('cert_account B', 'A.aid = B.id')->where('status', '<>', 4)->fieldRaw('A.id,A.aid,B.type,B.remark aremark')->order('id', 'desc')->select() as $row) {
-            $domains = Db::name('cert_domain')->where('oid', $row['id'])->order('sort', 'ASC')->column('domain');
+        $orderRows = Db::name('cert_order')->alias('A')->leftJoin('cert_account B', 'A.aid = B.id')->where('status', '<>', 4)->fieldRaw('A.id,A.aid,B.type,B.remark aremark')->order('id', 'desc')->select()->toArray();
+        $domainsByOrder = $this->orderDomainMap(array_column($orderRows, 'id'));
+        foreach ($orderRows as $row) {
+            $domains = $domainsByOrder[$row['id']] ?? [];
             $domainstr = count($domains) > 2 ? implode('、', array_slice($domains, 0, 2)) . '等' . count($domains) . '个域名' : implode('、', $domains);
             if ($row['aid'] == 0) {
                 $name = $row['id'] . '_' . $domainstr . '（手动续期）';
@@ -1138,6 +1199,74 @@ class Cert extends BaseController
             return json(['code' => 0, 'status' => $status]);
         }
         return json(['code' => -3]);
+    }
+
+    private function orderDomainMap(array $ids): array
+    {
+        if (!$ids) return [];
+        $map = [];
+        foreach (Db::name('cert_domain')->whereIn('oid', array_values(array_unique($ids)))->field('oid,domain')->order('sort', 'asc')->order('id', 'asc')->select() as $row) {
+            $map[$row['oid']][] = $row['domain'];
+        }
+        return $map;
+    }
+
+    /** Controller edits/deletes use the same mutex as background workers. */
+    private function certificateMutation(string $resource, \Closure $callback)
+    {
+        $connection = \app\service\TaskLockService::connection();
+        $lock = new \app\service\TaskLockService($connection, $resource);
+        try { $lock->acquire(); return $callback(); }
+        finally { try { $lock->release(); } finally { $connection->close(); } }
+    }
+
+    private function certificateOrderAuthorization(): \Closure
+    {
+        return function (int $oid, array $domains): void {
+            if (api_domains() === null) return;
+            if (!$domains) throw new \RuntimeException('证书订单不存在或不在API密钥域名范围内');
+            foreach ($domains as $domain) if (!api_domain_allowed($domain)) throw new \RuntimeException('证书订单不存在或不在API密钥域名范围内');
+        };
+    }
+
+    private function deleteCertificateOrder(int $id): void
+    {
+        $row = Db::name('cert_order')->where('id', $id)->find();
+        if (!$row) throw new \RuntimeException('证书订单不存在');
+        if (!empty($row['aid'])) { (new CertOrderService($id, $this->certificateOrderAuthorization()))->remove(); return; }
+        $this->certificateMutation('cert-order:' . $id, function () use ($id) {
+            if (!$this->apiOrderAllowed($id)) throw new \RuntimeException('证书订单不存在');
+            if (Db::name('cert_deploy')->where('oid', $id)->count()) throw new \RuntimeException('该证书关联了自动部署任务，无法删除');
+            Db::transaction(function () use ($id) {
+                Db::name('cert_order')->where('id', $id)->delete();
+                Db::name('cert_domain')->where('oid', $id)->delete();
+            });
+        });
+    }
+
+    private function authorizeDeploymentMutation(int $id): void
+    {
+        $oid = Db::name('cert_deploy')->where('id', $id)->value('oid');
+        if (!$oid || !$this->apiOrderAllowed($oid)) throw new \RuntimeException('自动部署任务不存在');
+    }
+
+    private function normalizeDeployConfig($raw, int $aid, int $oid): string
+    {
+        if (!is_string($raw) || strlen($raw) > 2097152) throw new \InvalidArgumentException('部署任务配置不能为空或超过2MB');
+        $config = json_decode($raw, true, 32, JSON_THROW_ON_ERROR);
+        if (!is_array($config) || !str_starts_with(ltrim($raw), '{')) throw new \InvalidArgumentException('部署任务配置应为JSON对象');
+        $account = Db::name('cert_account')->where('id', $aid)->where('deploy', 1)->find();
+        if (!$account || !isset(DeployHelper::$deploy_config[$account['type']])) throw new \InvalidArgumentException('部署账户不存在');
+        if (!Db::name('cert_order')->where('id', $oid)->find()) throw new \InvalidArgumentException('证书订单不存在');
+        if ($this->request->isApi) {
+            $allowed = array_keys(DeployHelper::$deploy_config[$account['type']]['taskinputs'] ?? []);
+            $allowed[] = '_verify_tls';
+            foreach (array_keys($config) as $field) if (!in_array($field, $allowed, true)) throw new \InvalidArgumentException('不支持的部署任务参数：' . $field);
+        }
+        if (isset($config['_verify_tls']) && !is_array($config['_verify_tls'])) throw new \InvalidArgumentException('线上验收配置格式不正确');
+        $domains = Db::name('cert_domain')->where('oid', $oid)->column('domain');
+        $config['_verify_tls'] = \app\service\CertVerificationService::normalizeConfig($config['_verify_tls'] ?? null, $domains);
+        return json_encode($config, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
     /**

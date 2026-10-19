@@ -70,19 +70,22 @@ $(document).ready(function(){
 			},
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
 			{
 				field: 'rr',
+				escape: false,
 				title: '域名',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + value + '.' + row.domain + '</span>';
+					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + htmlEscape(value) + '.' + htmlEscape(row.domain) + '</span>';
 				}
 			},
 			{
 				field: 'type',
+				escape: false,
 				title: '时间设置',
 				formatter: function(value, row, index) {
                     if(value == 1){
@@ -91,18 +94,19 @@ $(document).ready(function(){
                             weekday = ['日', '一', '二', '三', '四', '五', '六'];
                             text += '每周'+weekday[row.switchdate]+' ';
                         } else if(row.cycle == 2) {
-                            text += '每月'+row.switchdate+'日 ';
+                            text += '每月'+htmlEscape(row.switchdate)+'日 ';
                         } else {
                             text += '每天 ';
                         }
-                        return text + row.switchtime;
+                        return text + htmlEscape(row.switchtime);
                     }else{
-                        return '<span class="label bg-aqua">单次执行</span> '+row.switchtime.replace('T', ' ');
+                        return '<span class="label bg-aqua">单次执行</span> '+htmlEscape(String(row.switchtime || '').replace('T', ' '));
                     }
 				}
 			},
 			{
 				field: 'switchtype',
+				escape: false,
 				title: '切换设置',
 				formatter: function(value, row, index) {
 					if(value == 1) {
@@ -112,12 +116,13 @@ $(document).ready(function(){
 					} else if(value == 3) {
 						return '删除解析';
 					} else {
-						return '修改解析['+row.value+']';
+						return '修改解析['+htmlEscape(row.value)+']';
 					}
 				}
 			},
 			{
 				field: 'active',
+				escape: false,
 				title: '运行开关',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -130,17 +135,20 @@ $(document).ready(function(){
 			},
 			{
 				field: 'updatetimestr',
+				escape: true,
 				title: '上次切换时间',
 				sortable: true
 			},
             {
 				field: 'nexttimestr',
+				escape: true,
 				title: '下次切换时间',
 				sortable: true,
 				visible: false
 			},
 			{
 				field: 'addtimestr',
+				escape: true,
 				title: '添加时间',
 				sortable: true,
 				visible: false
@@ -153,12 +161,13 @@ $(document).ready(function(){
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
                     var domain = row.rr + '.' + row.domain;
-					var html = '<a href="/log?uid=0&domain='+domain+'" class="btn btn-info btn-xs">切换日志</a>&nbsp;&nbsp;';
+					var html = '<a href="/log?uid=0&domain='+encodeURIComponent(domain)+'" class="btn btn-info btn-xs">切换日志</a>&nbsp;&nbsp;';
 					html += '<a href="/schedule/stask/edit?id='+row.id+'" class="btn btn-primary btn-xs">修改</a>&nbsp;&nbsp;';
-					html += '<a href="/record/'+row.did+'?subdomain='+row.rr+'" class="btn btn-default btn-xs" target="_blank">解析</a>&nbsp;&nbsp;';
+					html += '<a href="/record/'+row.did+'?subdomain='+encodeURIComponent(row.rr)+'" class="btn btn-default btn-xs" target="_blank">解析</a>&nbsp;&nbsp;';
 					html += '<a href="javascript:delItem(\''+row.id+'\')" class="btn btn-danger btn-xs">删除</a>&nbsp;&nbsp;';
 					return html;
 				}
@@ -178,7 +187,7 @@ function setActive(id, active){
 			layer.msg('修改成功', {icon: 1, time:800});
 			searchRefresh();
 		} else {
-			layer.msg(data.msg, {icon: 2});
+			layer.msg(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }
@@ -191,7 +200,7 @@ function delItem(id){
 				layer.msg('删除成功', {icon: 1, time:800});
 				searchRefresh();
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -220,10 +229,10 @@ function operation(action){
 			layer.close(ii);
 			if(data.code == 0){
 				layer.closeAll();
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	});

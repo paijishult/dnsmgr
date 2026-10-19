@@ -34,7 +34,7 @@ class CertTaskService
             try {
                 $service = new CertOrderService($row['id']);
                 if ($row['status'] == 3) {
-                    $service->reset();
+                    $service->reset(true);
                 }
                 $retcode = $service->process();
                 if ($retcode == 3) {
@@ -44,10 +44,10 @@ class CertTaskService
                     echo 'ID:'.$row['id'].' 添加DNS记录成功！'.PHP_EOL;
                 }
                 break;
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 echo 'ID:'.$row['id'].' '.$e->getMessage().PHP_EOL;
                 if ($e->getCode() == 102) {
-                    break;
+                    continue;
                 } elseif ($e->getCode() == 103) {
                     if($row['issend'] == 0) MsgNotice::cert_order_send($row['id'], false);
                 } else {
@@ -76,20 +76,22 @@ class CertTaskService
         }
 
         echo '开始执行SSL证书部署任务...'.PHP_EOL;
-        $list = Db::name('cert_deploy')->field('id,status,issend')->whereRaw('active=1 AND status IN (0,-1) AND (retrytime IS NULL OR retrytime<NOW())')->select();
+        $list = Db::name('cert_deploy')->field('id,status,issend')->whereRaw('active=1 AND status IN (0,-1,2) AND (retrytime IS NULL OR retrytime<NOW())')->select();
         //print_r($list);exit;
         $count = 0;
         foreach ($list as $row) {
             try {
                 $service = new CertDeployService($row['id']);
                 $service->process();
+                $latest = Db::name('cert_deploy')->where('id', $row['id'])->find();
+                if (!$latest || (int)$latest['status'] !== 1) continue;
                 echo 'ID:'.$row['id'].' 部署任务执行成功！'.PHP_EOL;
                 if($row['issend'] == 0) MsgNotice::cert_deploy_send($row['id'], true);
                 $count++;
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 echo 'ID:'.$row['id'].' '.$e->getMessage().PHP_EOL;
                 if ($e->getCode() == 102) {
-                    break;
+                    continue;
                 } elseif ($e->getCode() == 103) {
                     if($row['issend'] == 0) MsgNotice::cert_deploy_send($row['id'], false);
                 } else {

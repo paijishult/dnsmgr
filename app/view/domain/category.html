@@ -83,6 +83,7 @@ $(document).ready(function(){
 		columns: [
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
@@ -94,31 +95,36 @@ $(document).ready(function(){
 			},
 			{
 				field: 'remark',
+				escape: false,
 				title: '备注',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return value ? value : '-';
+					return value ? htmlEscape(value) : '-';
 				}
 			},
 			{
 				field: 'sort',
+				escape: true,
 				title: '排序',
 				sortable: true
 			},
 			{
 				field: 'domain_count',
+				escape: false,
 				title: '域名数量',
 				formatter: function(value, row, index) {
-					return '<span class="label label-info">' + value + '</span>';
+					return '<span class="label label-info">' + htmlEscape(value) + '</span>';
 				}
 			},
 			{
 				field: 'addtime',
+				escape: true,
 				title: '添加时间',
 				sortable: true
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '<a href="javascript:editframe(\''+row.id+'\')" class="btn btn-primary btn-xs">修改</a>&nbsp;&nbsp;';
@@ -173,7 +179,7 @@ function save(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg, {
+				layer.alert(htmlEscape(data.msg), {
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -182,7 +188,7 @@ function save(){
 					searchRefresh();
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	});
@@ -203,7 +209,7 @@ function delItem(id) {
 					layer.msg('删除成功', {icon: 1, time:800});
 					searchRefresh();
 				}else{
-					layer.alert(data.msg, {icon: 2});
+					layer.alert(htmlEscape(data.msg), {icon: 2});
 				}
 			}
 		});

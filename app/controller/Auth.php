@@ -3,6 +3,9 @@
 namespace app\controller;
 
 use app\BaseController;
+use app\lib\ApiKeyHelper;
+use app\lib\AttemptLimiter;
+use app\lib\CsrfToken;
 use Exception;
 use think\facade\Db;
 
@@ -11,96 +14,109 @@ class Auth extends BaseController
 
     public function login()
     {
-        $login_limit_count = 5; //登录失败次数
-        $login_limit_file = app()->getRuntimePath() . '@login.lock';
-
-        if ($this->request->islogin) {
-            return redirect('/');
+        if ($this->request->islogin) return redirect('/');
+        if (!$this->request->isAjax()) return view();
+        if (!$this->request->isPost() || !CsrfToken::sameOrigin($this->request)) {
+            return json(['code' => -1, 'msg' => '请求来源不合法'])->code(403);
         }
-
-        if ($this->request->isAjax()) {
-            $username = input('post.username', null, 'trim');
-            $password = input('post.password', null, 'trim');
-            $code = input('post.code', null, 'trim');
-
-            if (empty($username) || empty($password)) {
-                return json(['code' => -1, 'msg' => '用户名或密码不能为空']);
-            }
-            if (config_get('vcode', '1') == '1' && !captcha_check($code)) {
-                return json(['code' => -1, 'msg' => '验证码错误', 'vcode' => 1]);
-            }
-            if (file_exists($login_limit_file)) {
-                $login_limit = unserialize(file_get_contents($login_limit_file));
-                if ($login_limit['count'] >= $login_limit_count && $login_limit['time'] > time() - 7200) {
-                    return json(['code' => -1, 'msg' => '多次登录失败，暂时禁止登录。可删除/runtime/@login.lock文件解除限制', 'vcode' => 1]);
-                }
-            }
-            $user = Db::name('user')->where('username', $username)->find();
-            if ($user && password_verify($password, $user['password'])) {
-                if ($user['status'] == 0) return json(['code' => -1, 'msg' => '此用户已被封禁', 'vcode' => 1]);
-                if (isset($user['totp_open']) && $user['totp_open'] == 1 && !empty($user['totp_secret'])) {
-                    session('pre_login_user', $user['id']);
-                    if (file_exists($login_limit_file)) {
-                        unlink($login_limit_file);
-                    }
-                    return json(['code' => -1, 'msg' => '需要验证动态口令', 'vcode' => 2]);
-                }
-                $this->loginUser($user);
-                if (file_exists($login_limit_file)) {
-                    unlink($login_limit_file);
-                }
-                return json(['code' => 0]);
-            } else {
-                if ($user) {
-                    Db::name('log')->insert(['uid' => $user['id'], 'action' => '登录失败', 'data' => 'IP:' . $this->clientip, 'addtime' => date("Y-m-d H:i:s")]);
-                    if (isset($user['totp_open']) && $user['totp_open'] == 1 && !empty($user['totp_secret'])) {
-                        return json(['code' => -1, 'msg' => '用户名或密码错误', 'vcode' => 1]);
-                    }
-                }
-                if (!file_exists($login_limit_file)) {
-                    $login_limit = ['count' => 0, 'time' => 0];
-                }
-                $login_limit['count']++;
-                $login_limit['time'] = time();
-                file_put_contents($login_limit_file, serialize($login_limit));
-                $retry_times = $login_limit_count - $login_limit['count'];
-                if ($retry_times == 0) {
-                    return json(['code' => -1, 'msg' => '多次登录失败，暂时禁止登录。可删除/runtime/@login.lock文件解除限制', 'vcode' => 1]);
-                } else {
-                    return json(['code' => -1, 'msg' => '用户名或密码错误，你还可以尝试' . $retry_times . '次', 'vcode' => 1]);
-                }
-            }
+        $username = input('post.username');
+        $password = input('post.password');
+        $code = input('post.code');
+        if (!is_string($username) || !is_string($password) || trim($username) === '' || $password === '' || strlen($username) > 256 || strlen($password) > 1024) {
+            return json(['code' => -1, 'msg' => '用户名或密码不能为空或过长']);
         }
-
-        return view();
+        $username = trim($username);
+        $ip = ApiKeyHelper::clientIp();
+        $ipKey = 'login-ip:' . $ip;
+        $ipLimit = AttemptLimiter::hit($ipKey, 30, 900);
+        if (!$ipLimit['allowed']) return json(['code' => -1, 'msg' => '登录尝试过于频繁，请稍后再试', 'vcode' => 1])->code(429);
+        if (config_get('vcode', '1') == '1' && (!is_string($code) || !captcha_check($code))) {
+            return json(['code' => -1, 'msg' => '验证码错误', 'vcode' => 1]);
+        }
+        $this->clearPendingLogin();
+        $user = Db::name('user')->where('username', $username)->find();
+        $userKey = $user ? 'login-user:' . $user['id'] . ':' . $ip : null;
+        if ($userKey && !AttemptLimiter::hit($userKey, 5, 900)['allowed']) {
+            return json(['code' => -1, 'msg' => '用户名或密码错误，或登录尝试过于频繁，请稍后再试', 'vcode' => 1])->code(429);
+        }
+        if (!$user || !password_verify($password, $user['password']) || $user['status'] != 1) {
+            if ($user) Db::name('log')->insert(['uid' => $user['id'], 'action' => '登录失败', 'data' => 'IP:' . $ip, 'addtime' => date('Y-m-d H:i:s')]);
+            return json(['code' => -1, 'msg' => '用户名或密码错误', 'vcode' => 1]);
+        }
+        AttemptLimiter::clear($userKey);
+        AttemptLimiter::clear($ipKey);
+        \think\facade\Session::regenerate();
+        if (!empty($user['totp_open']) && !empty($user['totp_secret'])) {
+            session('pre_login_user', (int)$user['id']);
+            session('pre_login_until', time() + 300);
+            session('pre_login_fingerprint', $this->loginFingerprint($user));
+            return json(['code' => -1, 'msg' => '需要验证动态口令', 'vcode' => 2]);
+        }
+        $this->loginUser($user);
+        return json(['code' => 0]);
     }
 
     public function totp()
     {
-        $uid = session('pre_login_user');
-        if (empty($uid)) return json(['code' => -1, 'msg' => '请重新登录']);
-        $code = input('post.code');
-        if (empty($code)) return json(['code' => -1, 'msg' => '请输入动态口令']);
-        $user = Db::name('user')->where('id', $uid)->find();
-        if (!$user) return json(['code' => -1, 'msg' => '用户不存在']);
-        if ($user['totp_open'] == 0 || empty($user['totp_secret'])) return json(['code' => -1, 'msg' => '未开启TOTP二次验证']);
-        try {
-            $totp = \app\lib\TOTP::create($user['totp_secret']);
-            if (!$totp->verify($code)) {
-                return json(['code' => -1, 'msg' => '动态口令错误']);
-            }
-        } catch (Exception $e) {
-            return json(['code' => -1, 'msg' => $e->getMessage()]);
+        if (!$this->request->isPost() || !CsrfToken::sameOrigin($this->request)) {
+            return json(['code' => -1, 'msg' => '请求来源不合法'])->code(403);
         }
+        $uid = (int)session('pre_login_user');
+        if (!$uid || (int)session('pre_login_until') < time()) {
+            $this->clearPendingLogin();
+            return json(['code' => -1, 'msg' => '登录验证已过期，请重新登录']);
+        }
+        $user = Db::name('user')->where('id', $uid)->find();
+        $fingerprint = session('pre_login_fingerprint');
+        if (!$user || $user['status'] != 1 || empty($user['totp_open']) || empty($user['totp_secret'])
+            || !is_string($fingerprint) || !hash_equals($this->loginFingerprint($user), $fingerprint)) {
+            $this->clearPendingLogin();
+            return json(['code' => -1, 'msg' => '登录状态已变更，请重新登录']);
+        }
+        $limitKey = 'login-totp:' . $uid . ':' . ApiKeyHelper::clientIp();
+        $limit = AttemptLimiter::hit($limitKey, 5, 300);
+        if (!$limit['allowed']) {
+            $this->clearPendingLogin();
+            return json(['code' => -1, 'msg' => '动态口令尝试次数过多，请稍后重新登录'])->code(429);
+        }
+        $code = input('post.code');
+        $valid = false;
+        try {
+            $valid = is_string($code) && preg_match('/^[0-9]{6}$/D', $code)
+                && \app\lib\TOTP::create($user['totp_secret'])->verify($code, null, 1);
+        } catch (\Throwable $e) {
+            $valid = false;
+        }
+        if (!$valid) {
+            if ($limit['remaining'] === 0) $this->clearPendingLogin();
+            return json(['code' => -1, 'msg' => $limit['remaining'] ? '动态口令错误' : '动态口令尝试次数过多，请稍后重新登录']);
+        }
+        AttemptLimiter::clear($limitKey);
         $this->loginUser($user);
-        session('pre_login_user', null);
+        $this->clearPendingLogin();
         return json(['code' => 0]);
+    }
+
+    private function loginFingerprint(array $user): string
+    {
+        return hash_hmac('sha256', $user['password'] . '|' . ($user['totp_secret'] ?? ''), (string)config_get('sys_key'));
+    }
+
+    private function clearPendingLogin(): void
+    {
+        foreach (['pre_login_user', 'pre_login_until', 'pre_login_fingerprint'] as $key) session($key, null);
     }
 
     public function logout()
     {
+        if (!$this->request->isPost() || !CsrfToken::sameOrigin($this->request)
+            || ($this->request->islogin && !CsrfToken::valid($this->request))) {
+            return json(['code' => -1, 'msg' => '页面验证已失效，请刷新后重试'])->code(403);
+        }
+        $this->clearPendingLogin();
+        \think\facade\Session::regenerate();
         cookie('user_token', null);
-        return redirect('/login');
+        return json(['code' => 0]);
     }
 
     public function quicklogin()
@@ -140,7 +156,7 @@ class Auth extends BaseController
         $session = md5($user['id'] . $user['password']);
         $expiretime = time() + 2562000;
         $token = authcode("user\t{$user['id']}\t{$session}\t{$expiretime}", 'ENCODE', config_get('sys_key'));
-        cookie('user_token', $token, ['expire' => $expiretime, 'httponly' => true]);
+        cookie('user_token', $token, ['expire' => $expiretime, 'httponly' => true, 'secure' => $this->request->isSsl(), 'samesite' => 'lax']);
     }
 
     private function loginDomain($row)
@@ -149,7 +165,7 @@ class Auth extends BaseController
         $session = md5($row['id'] . $row['name']);
         $expiretime = time() + 2562000;
         $token = authcode("domain\t{$row['id']}\t{$session}\t{$expiretime}", 'ENCODE', config_get('sys_key'));
-        cookie('user_token', $token, ['expire' => $expiretime, 'httponly' => true]);
+        cookie('user_token', $token, ['expire' => $expiretime, 'httponly' => true, 'secure' => $this->request->isSsl(), 'samesite' => 'lax']);
     }
 
     public function verifycode()

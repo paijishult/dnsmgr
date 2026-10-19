@@ -211,37 +211,43 @@ $(document).ready(function(){
 			},
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
 			{
 				field: 'typename',
+				escape: false,
 				title: '平台账户',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<img src="/static/images/'+row.icon+'" class="type-logo"></img>'+(row.aremark?htmlEscape(row.aremark):value+'('+row.aid+')');
+					return '<img src="/static/images/'+encodeURIComponent(row.icon || '')+'" class="type-logo"></img>'+(row.aremark?htmlEscape(row.aremark):htmlEscape(value)+'('+row.aid+')');
 				}
 			},
             {
 				field: 'name',
+				escape: false,
 				title: '域名',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<a href="/record/'+row.id+'" title="进入解析记录管理" onclick="loading()">'+value+'</a>';
+					return '<a href="/record/'+row.id+'" title="进入解析记录管理" onclick="loading()">'+htmlEscape(value)+'</a>';
 				}
 			},
 			{
 				field: 'recordcount',
+				escape: true,
 				title: '记录数',
 				sortable: true
 			},
 			{
 				field: 'addtime',
+				escape: true,
 				title: '添加时间',
 				sortable: true
 			},
 			{
 				field: 'regtime',
+				escape: false,
 				title: '注册时间',
 				sortable: true,
 				visible: false,
@@ -254,13 +260,14 @@ $(document).ready(function(){
 							html = '<font color="#bdbdbd">未知</font>';
 						}
 					} else {
-						html = value.slice(0,10);
+						html = htmlEscape(value.slice(0,10));
 					}
 					return html;
 				}
 			},
 			{
 				field: 'expiretime',
+				escape: false,
 				title: '到期时间',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -276,11 +283,11 @@ $(document).ready(function(){
 						var expiretime = new Date(value).getTime();
 						var days = parseInt((expiretime - now) / 1000 / 24 / 60 / 60);
 						if (days > 30) {
-							html += '<span title="还有'+days+'天到期" data-toggle="tooltip" data-placement="bottom">'+value.slice(0,10)+'</span>';
+							html += '<span title="还有'+days+'天到期" data-toggle="tooltip" data-placement="bottom">'+htmlEscape(value.slice(0,10))+'</span>';
 						} else if (days > 0) {
-							html += '<b><span class="text-yellow" title="还有'+days+'天到期" data-toggle="tooltip" data-placement="bottom">'+value.slice(0,10)+'</span></b>';
+							html += '<b><span class="text-yellow" title="还有'+days+'天到期" data-toggle="tooltip" data-placement="bottom">'+htmlEscape(value.slice(0,10))+'</span></b>';
 						} else {
-							html += '<b><span class="text-red" title="已到期" data-toggle="tooltip" data-placement="bottom">'+value.slice(0,10)+'</span></b>';
+							html += '<b><span class="text-red" title="已到期" data-toggle="tooltip" data-placement="bottom">'+htmlEscape(value.slice(0,10))+'</span></b>';
 						}
 					}
 					if (value != null && row.checkstatus == 3) {
@@ -292,6 +299,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'teststatus',
+				escape: false,
 				title: '有效性',
 				formatter: function(value, row, index) {
 					return tester.cell(row.id);
@@ -299,6 +307,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'is_notice',
+				escape: false,
 				title: '到期提醒',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -307,6 +316,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'is_hide',
+				escape: false,
 				title: '是否隐藏',
 				sortable: true,
 				visible: false,
@@ -316,6 +326,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'is_sso',
+				escape: false,
 				title: '对接开关',
 				sortable: true,
 				visible: false,
@@ -325,10 +336,11 @@ $(document).ready(function(){
 			},
 			{
 				field: 'category_name',
+				escape: false,
 				title: '分类',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return value ? '<span class="label label-default">' + value + '</span>' : '-';
+					return value ? '<span class="label label-default">' + htmlEscape(value) + '</span>' : '-';
 				}
 			},
 			{
@@ -339,6 +351,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '<a href="/record/'+row.id+'" class="btn btn-success btn-xs" onclick="loading()">解析</a> <a href="javascript:tester.one('+row.id+')" class="btn btn-default btn-xs" title="测试域名是否有效"><i class="fa fa-stethoscope"></i> 测试</a>';
@@ -426,7 +439,7 @@ function saveAdd(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg,{
+				layer.alert(htmlEscape(data.msg),{
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -435,7 +448,7 @@ function saveAdd(){
 					searchRefresh();
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -466,11 +479,11 @@ function saveEdit(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.msg(data.msg, {icon:1, time:800});
+				layer.msg(htmlEscape(data.msg), {icon:1, time:800});
 				$("#modal-store2").modal('hide');
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});
@@ -489,7 +502,7 @@ function delItem(id) {
 				layer.closeAll();
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	  });
@@ -529,7 +542,7 @@ function getDomainList(){
 						}
 					};
 				}else{
-					layer.alert(data.msg, {icon: 2});
+					layer.alert(htmlEscape(data.msg), {icon: 2});
 					return {
 		                results: []
 		            };
@@ -594,10 +607,10 @@ function operation(action){
 					layer.close(ii);
 					if(data.code == 0){
 						layer.closeAll();
-						layer.alert(data.msg, {icon: 1});
+						layer.alert(htmlEscape(data.msg), {icon: 1});
 						searchRefresh();
 					}else{
-						layer.alert(data.msg, {icon: 2});
+						layer.alert(htmlEscape(data.msg), {icon: 2});
 					}
 				}
 			});
@@ -614,10 +627,10 @@ function operation(action){
 					layer.close(ii);
 					if(data.code == 0){
 						layer.closeAll();
-						layer.alert(data.msg, {icon: 1});
+						layer.alert(htmlEscape(data.msg), {icon: 1});
 						searchRefresh();
 					}else{
-						layer.alert(data.msg, {icon: 2});
+						layer.alert(htmlEscape(data.msg), {icon: 2});
 					}
 				}
 			});
@@ -634,10 +647,10 @@ function operation(action){
 				layer.close(ii);
 				if(data.code == 0){
 					layer.closeAll();
-					layer.alert(data.msg, {icon: 1});
+					layer.alert(htmlEscape(data.msg), {icon: 1});
 					searchRefresh();
 				}else{
-					layer.alert(data.msg, {icon: 2});
+					layer.alert(htmlEscape(data.msg), {icon: 2});
 				}
 			}
 		});
@@ -661,7 +674,7 @@ function batch_edit_remark(ids) {
 				dataType : 'json',
 				success : function(data) {
 					layer.close(ii);
-					layer.alert(data.msg,{
+					layer.alert(htmlEscape(data.msg),{
 						icon: 1,
 						closeBtn: false
 					}, function(){
@@ -711,7 +724,7 @@ function batch_set_category(ids) {
 				dataType : 'json',
 				success : function(data) {
 					layer.close(ii);
-					layer.alert(data.msg,{
+					layer.alert(htmlEscape(data.msg),{
 						icon: 1,
 						closeBtn: false
 					}, function(){

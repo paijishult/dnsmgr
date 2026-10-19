@@ -114,6 +114,7 @@ body {
 </div>
 <script src="/static/js/bootstrap-3.4.1.min.js"></script>
 <script src="/static/js/layer/layer.js"></script>
+<script src="/static/js/zn.js?v={:config('app.version')}"></script>
 <script>
 function doLogin(){
     var username = $("input[name='username']").val();
@@ -152,7 +153,7 @@ function doLogin(){
                     $("#totp_code").focus();
                     return false;
                 }
-                layer.alert(data.msg, {icon: 2});
+                layer.alert(htmlEscape(data.msg), {icon: 2});
             }
         }
     });
@@ -171,7 +172,7 @@ function doTotp(){
 			layer.msg('登录成功，正在进入控制台', {icon: 1,shade: 0.01,time: 15000});
             window.location.href = '/';
 		}else{
-			layer.alert(res.msg, {icon: 2});
+			layer.alert(htmlEscape(res.msg), {icon: 2});
 		}
 	});
 	return false;

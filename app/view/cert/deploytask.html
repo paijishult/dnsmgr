@@ -80,24 +80,27 @@ $(document).ready(function(){
 			},
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
 			{
 				field: 'typename',
+				escape: false,
 				title: '自动部署账户',
 				sortable: true,
 				formatter: function(value, row, index) {
 					if(!value) return '已被删除'
-					return '<span title="'+htmlEscape(row.aname)+'" data-toggle="tooltip" data-placement="right"><img src="/static/images/'+row.icon+'" class="type-logo">'+(row.aremark?htmlEscape(row.aremark):value+'('+row.aid+')')+'</span>';
+					return '<span title="'+htmlEscape(row.aname)+'" data-toggle="tooltip" data-placement="right"><img src="/static/images/'+encodeURIComponent(row.icon || '')+'" class="type-logo">'+(row.aremark?htmlEscape(row.aremark):htmlEscape(value)+'('+row.aid+')')+'</span>';
 				}
 			},
 			{
 				field: 'domains',
+				escape: false,
 				title: '关联SSL证书',
 				formatter: function(value, row, index) {
-					var html = '<a href="/cert/certorder?id='+row.oid+'" target="_blank">ID:'+row.oid+'（'+row.certtypename+'）</a><br/><span class="text-muted">';
-					html += value.length > 3 ? value.slice(0, 3).join('、') + ' 等'+value.length+'个域名' : value.join('、');
+					var html = '<a href="/cert/certorder?id='+row.oid+'" target="_blank">ID:'+row.oid+'（'+htmlEscape(row.certtypename)+'）</a><br/><span class="text-muted">';
+					html += value.length > 3 ? value.slice(0, 3).map(htmlEscape).join('、') + ' 等'+value.length+'个域名' : value.map(htmlEscape).join('、');
 					html += '</span>';
 					return html;
 				}
@@ -110,6 +113,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'active',
+				escape: false,
 				title: '任务开关',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -122,33 +126,51 @@ $(document).ready(function(){
 			},
 			{
 				field: 'lasttime',
+				escape: false,
 				title: '上次执行时间',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return value ? value : '暂未执行'
+					return value ? htmlEscape(value) : '暂未执行'
 				}
 			},
 			{
 				field: 'status',
+				escape: false,
 				title: '状态',
 				sortable: true,
 				formatter: function(value, row, index) {
 					if(value == 1) {
 						return '<span class="label label-success">已完成</span>';
+					} else if(value == 2) {
+						return '<span class="label label-warning">部署完成，待验收</span>' + (row.verification && row.verification.error ? ' <span class="tips" title="'+htmlEscape(row.verification.error)+'" data-toggle="tooltip"><i class="fa fa-info-circle"></i></span>' : '');
 					} else if(value == 0) {
 						if(row.islock == 1) return '<span class="label" style="background-color: #3e76fb;">正在处理</span>';
 						else return '<span class="label label-info">待处理</span>';
 					} else {
-						return '<span class="label label-danger">处理失败</span>'+(row.error?' <span onclick="showmsg(\''+row.error+'\')" class="tips" title="失败原因"><i class="fa fa-info-circle"></i></span>':'');
+						return '<span class="label label-danger">处理失败</span>'+(row.error?' <span data-error="'+htmlEscape(row.error)+'" onclick="showmsg(this.getAttribute(\'data-error\'))" class="tips" title="失败原因"><i class="fa fa-info-circle"></i></span>':'');
 					}
 				}
 			},
 			{
+				field: 'verification',
+				title: '证书验收',
+				escape: false,
+				formatter: function(value) {
+					if (!value || !value.status) return '<span class="text-muted">未启用</span>';
+					var labels = {passed: '验收通过', pending: '待验收', failed: '验收未通过'};
+					var label = labels[value.status] || '待验收', style = value.status === 'passed' ? 'success' : 'warning';
+					return '<span class="label label-'+style+'">'+label+'</span><br><small title="'+htmlEscape(value.error || value.checked_at || '')+'">'+htmlEscape(value.host)+(value.port ? ':'+htmlEscape(value.port) : '')+'</small>';
+				}
+			},
+			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '';
-					if(row.status == 0) {
+					if(row.status == 2) {
+						html += '<a href="javascript:doOrder(\''+row.id+'\')" class="btn btn-success btn-xs"><i class="fa fa-check-circle"></i> 重试验收</a>&nbsp;&nbsp;';
+					}else if(row.status == 0) {
 						html += '<a href="javascript:doOrder(\''+row.id+'\')" class="btn btn-success btn-xs"><i class="fa fa-play-circle"></i> 手动执行</a>&nbsp;&nbsp;';
 					}else if(row.status == 1) {
 						html += '<a href="javascript:reDoOrder(\''+row.id+'\')" class="btn btn-success btn-xs"><i class="fa fa-play-circle"></i> 重新执行</a>&nbsp;&nbsp;';
@@ -157,7 +179,7 @@ $(document).ready(function(){
 					}
 					html += '<a href="/cert/deploy/edit?id='+row.id+'" class="btn btn-primary btn-xs"><i class="fa fa-edit"></i> 修改</a>&nbsp;&nbsp;';
 					html += '<div class="btn-group dropdown-group" role="group"><button type="button" class="btn btn-info btn-xs dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">更多 <span class="caret"></span></button><ul class="dropdown-menu">';
-					html += '<li><a href="javascript:showLog(\''+row.processid+'\')">查看日志</a></li>';
+					html += '<li><a href="javascript:showLog(\''+jsEscape(row.processid)+'\')">查看日志</a></li>';
 					if(row.status < 0){
 						html += '<li><a href="javascript:resetOrder(\''+row.id+'\')">重置任务</a></li>';
 					}
@@ -169,22 +191,6 @@ $(document).ready(function(){
 		],
 		onLoadSuccess: function(data) {
 			$('[data-toggle="tooltip"]').tooltip()
-			$('.dropdown-group').on('show.bs.dropdown', function (e) {
-				var btnPos = $(e.target)[0].getBoundingClientRect();
-				var screenWidth = $(window).width();
-				var screenHeight = $(window).height();
-				var childrenWidth = $(e.target).children('.dropdown-menu').width();
-				var childrenHeight = $(e.target).children('.dropdown-menu').height();
-				var top = btnPos.bottom;
-				if(top + childrenHeight + 12 > screenHeight){
-					top = btnPos.top - childrenHeight - 12;
-				}
-				var left = btnPos.left;
-				if(left + childrenWidth + 7 > screenWidth){
-					left = screenWidth - childrenWidth - 7;
-				}
-				$(e.target).children('.dropdown-menu').css({position:'fixed', top:top, left:left});
-			});
 		},
 		onPageChange: function(number, size){
 			setStoredPageSize(pageSizeKey, size);
@@ -192,7 +198,7 @@ $(document).ready(function(){
 	})
 })
 function showmsg(msg){
-	layer.alert(msg, {icon: 0, title: '失败原因'});
+	layer.alert(htmlEscape(msg), {icon: 0, title: '失败原因'});
 }
 function setActive(id, active){
 	$.post('/cert/deploy/setactive', {id: id, active: active}, function(data){
@@ -200,7 +206,7 @@ function setActive(id, active){
 			layer.msg('修改成功', {icon: 1, time:800});
 			$('#listTable').bootstrapTable('refresh');
 		} else {
-			layer.msg(data.msg, {icon: 2});
+			layer.msg(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }
@@ -213,7 +219,7 @@ function delItem(id,status){
 				layer.msg('删除成功', {icon: 1, time:800});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -229,17 +235,17 @@ function doOrder(id, reset){
 		success: function(data) {
 			layer.close(ii);
 			if(data.code == 0) {
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
 				if(data.msg == '部署任务处理中，请稍后再试'){
-					layer.alert(data.msg, {icon: 2}, function(){
+					layer.alert(htmlEscape(data.msg), {icon: 2}, function(){
 						layer.closeAll();
 						var row = $("#listTable").bootstrapTable('getRowByUniqueId', id);
 						showLog(row.processid)
 					});
 				}else{
-					layer.alert(data.msg, {icon: 2});
+					layer.alert(htmlEscape(data.msg), {icon: 2});
 					$('#listTable').bootstrapTable('refresh');
 				}
 			}
@@ -259,7 +265,7 @@ function resetOrder(id){
 				layer.msg('重置任务状态成功', {icon: 1, time:800});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -286,7 +292,7 @@ function showLog(processid){
 				area: [$(window).width() > 768 ? '600px' : '100%', '400px'],
 				shadeClose: true,
 				resize: false,
-				content: '<div class="modal-log"><pre class="pre-log" id="execLog">'+data.data+'</pre></div>',
+				content: '<div class="modal-log"><pre class="pre-log" id="execLog">'+htmlEscape(data.data)+'</pre></div>',
 				success: function(){
 					var exec_log = $('#execLog');
 					exec_log[0].scrollTop = exec_log[0].scrollHeight
@@ -294,7 +300,7 @@ function showLog(processid){
 						$.post('/cert/deploy/show_log', {processid: processid}, function(data){
 							if(data.code == 0 && data.time != filemtime) {
 								var exec_log = $('#execLog');
-								exec_log.html(data.data);
+								exec_log.text(data.data);
 								filemtime = data.time;
 								exec_log[0].scrollTop = exec_log[0].scrollHeight
 							}
@@ -306,7 +312,7 @@ function showLog(processid){
 				}
 			});
 		} else {
-			layer.msg(data.msg, {icon: 2, time: 600});
+			layer.msg(htmlEscape(data.msg), {icon: 2, time: 600});
 		}
 	}, 'json');
 }
@@ -338,10 +344,10 @@ function operation(action){
 			layer.close(ii);
 			if(data.code == 0){
 				layer.closeAll();
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	});
@@ -358,10 +364,10 @@ function batch_set_cert(ids){
 				layer.close(ii);
 				if(data.code == 0){
 					layer.closeAll();
-					layer.alert(data.msg, {icon: 1});
+					layer.alert(htmlEscape(data.msg), {icon: 1});
 					searchRefresh();
 				}else{
-					layer.alert(data.msg, {icon: 2});
+					layer.alert(htmlEscape(data.msg), {icon: 2});
 				}
 			}
 		});

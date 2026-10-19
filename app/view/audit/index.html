@@ -131,7 +131,7 @@
 <script src="/static/js/bootstrap-table-page-jump-to-1.21.4.min.js"></script>
 <script src="/static/js/custom.js?v={:config('app.version')}"></script>
 <script>
-var SETTINGS = {:json_encode($settings)};
+var SETTINGS = {:json_encode($settings, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 var rowsById = {};
 function esc(s) { return htmlEscape(s == null ? '' : s); }
 function resultChip(r) {
@@ -191,8 +191,8 @@ function saveSetting() {
 			$('#settingForm').serializeArray().forEach(function(x) { SETTINGS[x.name] = x.value; });
 			retainTip();
 			$('#settingModal').modal('hide');
-			layer.msg(res.msg, {icon: 1});
-		} else layer.alert(res.msg, {icon: 2});
+			layer.msg(htmlEscape(res.msg), {icon: 1});
+		} else layer.alert(htmlEscape(res.msg), {icon: 2});
 	}, 'json');
 	return false;
 }
@@ -202,7 +202,7 @@ function cleanLogs() {
 	layer.confirm('确定清理 ' + days + ' 天之前的审计日志吗？清理后无法恢复。', {icon: 3, title: '清理审计日志', btn: ['清理', '取消']}, function(i) {
 		layer.close(i);
 		$.post('/audit/clean', {days: days}, function(res) {
-			if (res.code == 0) { layer.msg(res.msg, {icon: 1}); searchRefresh(); } else layer.alert(res.msg, {icon: 2});
+			if (res.code == 0) { layer.msg(htmlEscape(res.msg), {icon: 1}); searchRefresh(); } else layer.alert(htmlEscape(res.msg), {icon: 2});
 		}, 'json');
 	});
 }
@@ -248,14 +248,14 @@ $(function() {
 			return res;
 		},
 		columns: [
-			{field: 'addtime', title: '时间', formatter: function(v) { v = String(v || ''); return '<div class="audit-time"><b>' + esc(v.substr(11)) + '</b><span>' + esc(v.substr(0, 10)) + '</span></div>'; }},
-			{field: 'source', title: '来源', formatter: function(v, r) { return sourceChip(r); }},
-			{field: 'username', title: '操作者', formatter: function(v, r) { return v ? esc(v) : '<span class="text-muted">-</span>'; }},
-			{field: 'name', title: '操作', formatter: function(v, r) { return '<div class="audit-op">' + esc(v) + '</div><div class="audit-path">' + esc(r.method) + ' ' + esc(r.path) + '</div>'; }},
-			{field: 'target', title: '对象', formatter: function(v) { return v ? '<div class="audit-target" title="' + esc(v) + '">' + esc(v) + '</div>' : '<span class="text-muted">-</span>'; }},
-			{field: 'result', title: '结果', formatter: function(v, r) { return resultChip(r) + (r.msg ? '<div class="audit-msg" title="' + esc(r.msg) + '">' + esc(r.msg) + '</div>' : ''); }},
-			{field: 'ip', title: 'IP', formatter: function(v) { return '<a href="javascript:;" class="mono audit-ip" data-ip="' + esc(v) + '" title="只看此IP">' + esc(v) + '</a>'; }},
-			{field: 'duration', title: '耗时', visible: false, formatter: function(v) { return esc(v) + 'ms'; }}
+			{field: 'addtime', escape: false, title: '时间', formatter: function(v) { v = String(v || ''); return '<div class="audit-time"><b>' + esc(v.substr(11)) + '</b><span>' + esc(v.substr(0, 10)) + '</span></div>'; }},
+			{field: 'source', escape: false, title: '来源', formatter: function(v, r) { return sourceChip(r); }},
+			{field: 'username', escape: false, title: '操作者', formatter: function(v, r) { return v ? esc(v) : '<span class="text-muted">-</span>'; }},
+			{field: 'name', escape: false, title: '操作', formatter: function(v, r) { return '<div class="audit-op">' + esc(v) + '</div><div class="audit-path">' + esc(r.method) + ' ' + esc(r.path) + '</div>'; }},
+			{field: 'target', escape: false, title: '对象', formatter: function(v) { return v ? '<div class="audit-target" title="' + esc(v) + '">' + esc(v) + '</div>' : '<span class="text-muted">-</span>'; }},
+			{field: 'result', escape: false, title: '结果', formatter: function(v, r) { return resultChip(r) + (r.msg ? '<div class="audit-msg" title="' + esc(r.msg) + '">' + esc(r.msg) + '</div>' : ''); }},
+			{field: 'ip', escape: false, title: 'IP', formatter: function(v) { return '<a href="javascript:;" class="mono audit-ip" data-ip="' + esc(v) + '" title="只看此IP">' + esc(v) + '</a>'; }},
+			{field: 'duration', escape: false, title: '耗时', visible: false, formatter: function(v) { return esc(v) + 'ms'; }}
 		],
 		onClickRow: function(row, $el, field) { if (field !== 'ip') showDetail(row.id); },
 		onPageChange: function(number, size) { setStoredPageSize(pageSizeKey, size); }

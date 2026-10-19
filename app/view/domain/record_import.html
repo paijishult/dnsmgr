@@ -46,9 +46,9 @@
 <script src="/static/js/layer/layer.js"></script>
 <script src="/static/js/xlsx.full.min.js"></script>
 <script>
-var recordLine = {$recordLine|json_encode|raw};
-var dnsconfig = {$dnsconfig|json_encode|raw};
-var defaultLineId = {$defaultLine|json_encode|raw};
+var recordLine = {:json_encode($recordLine, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var dnsconfig = {:json_encode($dnsconfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var defaultLineId = {:json_encode($defaultLine, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 var minTTL = parseInt('{$minTTL}', 10) || 1;
 var importRecords = [];
 var importing = false;
@@ -166,7 +166,7 @@ function readExcelFile(file){
 			parseExcelRows(rows);
 		}catch(e){
 			resetPreview();
-			layer.alert('读取Excel失败：' + e.message, {icon: 2});
+			layer.alert('读取Excel失败：' + htmlEscape(e.message), {icon: 2});
 		}
 	};
 	reader.onerror = function(){

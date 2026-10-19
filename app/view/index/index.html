@@ -40,6 +40,7 @@
 				<li><a href="/cert/deploytask?status=0">待处理<span class="zn-count" id="certdeploy_status_0">0</span></a></li>
 				<li><a href="/cert/deploytask?status=1">部署成功<span class="zn-count is-good" id="certdeploy_status_1">0</span></a></li>
 				<li><a href="/cert/deploytask?status=-1">部署失败<span class="zn-count is-bad" id="certdeploy_status_2">0</span></a></li>
+				<li><a href="/cert/deploytask?status=2">待验收<span class="zn-count" id="certdeploy_verification">0</span></a></li>
 			</ul>
 		</div>
 	</div>
@@ -127,9 +128,9 @@ $(function(){
 			if (d.certorder_status_6 > 0) certSub.push('<span class="warn">' + d.certorder_status_6 + ' 个即将到期</span>');
 			if (d.certorder_status_5 > 0) certSub.push('<span class="bad">' + d.certorder_status_5 + ' 个签发失败</span>');
 			$('#sub3').html(certSub.length ? certSub.join('，') : (d.certs > 0 ? '<span class="good">全部正常</span>' : '暂无证书'));
-			$('#sub4').html(d.certdeploy_status_2 > 0 ? '<span class="bad">' + d.certdeploy_status_2 + ' 个部署失败</span>' : (d.deploys > 0 ? '<span class="good">全部正常</span>' : '暂未配置'));
+			$('#sub4').html(d.certdeploy_status_2 > 0 ? '<span class="bad">' + d.certdeploy_status_2 + ' 个部署失败</span>' : (d.certdeploy_verification > 0 ? d.certdeploy_verification + ' 个待验收' : (d.deploys > 0 ? '<span class="good">全部正常</span>' : '暂未配置')));
 			$('#dmonitor_state').html(d.dmonitor_state == 1 ? '<span class="zn-dot on"></span>运行中' : '<span class="zn-dot off"></span>已停止');
-			['dmonitor_active','dmonitor_status_0','dmonitor_status_1','optimizeip_active','optimizeip_status_1','optimizeip_status_2','certorder_status_3','certorder_status_5','certorder_status_6','certorder_status_7','certdeploy_status_0','certdeploy_status_1','certdeploy_status_2','apikeys'].forEach(function(k){ setCount(k, d[k] || 0); });
+			['dmonitor_active','dmonitor_status_0','dmonitor_status_1','optimizeip_active','optimizeip_status_1','optimizeip_status_2','certorder_status_3','certorder_status_5','certorder_status_6','certorder_status_7','certdeploy_status_0','certdeploy_status_1','certdeploy_status_2','certdeploy_verification','apikeys'].forEach(function(k){ setCount(k, d[k] || 0); });
 			if (d.apikey_last) $('#apikey_last').text(d.apikey_last);
 			setCount('api_calls', d.api_calls || 0);
 			setCount('api_denied', d.api_denied || 0);
@@ -143,8 +144,8 @@ $(function(){
 function cleancache(){
 	var ii = layer.load(2);
 	$.ajax({
-		type: 'GET', url: '/cleancache', dataType: 'json',
-		success: function() { layer.close(ii); layer.msg('缓存已清理', {icon: 1}); },
+		type: 'POST', url: '/cleancache', dataType: 'json',
+		success: function(data) { layer.close(ii); layer.msg(data.code === 0 ? '缓存已清理' : htmlEscape(data.msg || '清理缓存失败'), {icon: data.code === 0 ? 1 : 2}); },
 		error: function() { layer.close(ii); layer.msg('服务器错误'); }
 	});
 }

@@ -1,3 +1,24 @@
+// Encode at the HTML output boundary; never treat provider or API text as markup.
+window.htmlEscape = window.htmlEscape || function (value) {
+	return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) {
+		return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+	});
+};
+window.jsEscape = function (value) {
+	return htmlEscape(String(value == null ? '' : value).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029'));
+};
+
+// All existing native AJAX forms share the same session-bound CSRF token.
+if (window.jQuery) {
+	jQuery.ajaxPrefilter(function (options, originalOptions, xhr) {
+		var target;
+		try { target = new URL(options.url || window.location.href, window.location.href); } catch (e) { return; }
+		if (target.origin !== window.location.origin || /^(GET|HEAD|OPTIONS)$/i.test(options.type || 'GET')) return;
+		var token = document.querySelector('meta[name="csrf-token"]');
+		if (token && token.content) xhr.setRequestHeader('X-CSRF-Token', token.content);
+	});
+}
+
 /*
  * 界面增强：页面标题、快速搜索（⌘K / Ctrl+K）
  * 只做增强，不改变原有页面功能；任何异常都不会影响页面其他脚本。
@@ -5,6 +26,80 @@
 (function ($) {
 	'use strict';
 	if (!$) return;
+
+	// Bootstrap 3 menus inside scrollable tables/cards are clipped by overflow.
+	// Move only those open menus to body and restore them before Bootstrap hides.
+	// Keeping the original dropdown owner preserves Bootstrap's click lifecycle.
+	var floatingDropdown = null;
+	function restoreDropdown() {
+		if (!floatingDropdown) return;
+		var state = floatingDropdown;
+		floatingDropdown = null;
+		state.menu.removeClass('zn-floating-dropdown').attr('style', state.style || '');
+		if (state.placeholder.parentNode) {
+			state.placeholder.parentNode.insertBefore(state.menu[0], state.placeholder);
+			state.placeholder.parentNode.removeChild(state.placeholder);
+		} else state.menu.remove();
+	}
+	function closeDropdown() {
+		if (!floatingDropdown) return;
+		var toggle = floatingDropdown.toggle;
+		if ($.contains(document, toggle[0])) toggle.dropdown('toggle');
+		else restoreDropdown();
+	}
+	$(document).on('shown.bs.dropdown', '.btn-group, .dropdown', function (event) {
+		if (event.target !== this || !$(this).closest('.table-responsive, .fixed-table-container, .panel, .box').length) return;
+		var owner = $(this), menu = owner.children('.dropdown-menu').first(), toggle = owner.children('[data-toggle="dropdown"]').first();
+		if (!menu.length || !toggle.length) return;
+		restoreDropdown();
+		var placeholder = document.createComment('dropdown-menu');
+		menu[0].parentNode.insertBefore(placeholder, menu[0]);
+		floatingDropdown = { menu: menu, toggle: toggle, placeholder: placeholder, style: menu.attr('style') };
+		menu.appendTo(document.body).addClass('zn-floating-dropdown').css({ position: 'fixed', display: 'block', visibility: 'hidden', right: 'auto', bottom: 'auto', margin: 0, maxHeight: Math.max(40, window.innerHeight - 16), overflowY: 'auto', zIndex: 1060 });
+		var rect = toggle[0].getBoundingClientRect(), width = menu.outerWidth(), height = menu.outerHeight();
+		floatingDropdown.anchor = {left: rect.left, top: rect.top};
+		var below = window.innerHeight - rect.bottom - 8, above = rect.top - 8;
+		var openAbove = height > below && above > below;
+		menu.css('max-height', Math.max(40, openAbove ? above : below));
+		height = menu.outerHeight();
+		var left = menu.hasClass('dropdown-menu-right') ? rect.right - width : rect.left;
+		menu.css({ left: Math.max(8, Math.min(left, window.innerWidth - width - 8)), top: Math.max(8, openAbove ? rect.top - height - 2 : rect.bottom + 2), visibility: 'visible' });
+	});
+	$(document).on('hide.bs.dropdown', function () { restoreDropdown(); });
+	if (window.MutationObserver) new MutationObserver(function () {
+		if (floatingDropdown && !document.documentElement.contains(floatingDropdown.toggle[0])) restoreDropdown();
+	}).observe(document.body, {childList: true, subtree: true});
+	$(document).on('pre-body.bs.table', closeDropdown);
+	$(window).on('resize.znDropdown', closeDropdown);
+	document.addEventListener('scroll', function (event) {
+		if (!floatingDropdown || floatingDropdown.menu[0].contains(event.target)) return;
+		// A queued scroll event can arrive after the button was scrolled into
+		// view and clicked. Close only if its anchor actually moved since opening.
+		var rect = floatingDropdown.toggle[0].getBoundingClientRect(), anchor = floatingDropdown.anchor;
+		if (!anchor || Math.abs(rect.left - anchor.left) > 1 || Math.abs(rect.top - anchor.top) > 1) closeDropdown();
+	}, true);
+	$(document).on('keydown', '.zn-floating-dropdown', function (event) {
+		if (!floatingDropdown || [27, 35, 36, 38, 40].indexOf(event.which) === -1 || /input|textarea/i.test(event.target.tagName)) return;
+		event.preventDefault(); event.stopPropagation();
+		var toggle = floatingDropdown.toggle;
+		if (event.which === 27) { closeDropdown(); toggle.trigger('focus'); return; }
+		var links = floatingDropdown.menu.find('li:not(.disabled) > a').filter(':visible'), index = links.index(event.target);
+		if (event.which === 36) index = 0;
+		else if (event.which === 35) index = links.length - 1;
+		else index = Math.max(0, Math.min(links.length - 1, index + (event.which === 38 ? -1 : 1)));
+		links.eq(index).trigger('focus');
+	});
+	$(document).on('keydown', '[data-toggle="dropdown"]', function (event) {
+		if (floatingDropdown && floatingDropdown.toggle[0] === this && (event.which === 38 || event.which === 40)) {
+			event.preventDefault(); event.stopPropagation();
+			floatingDropdown.menu.find('li:not(.disabled) > a').filter(':visible').first().trigger('focus');
+		}
+	});
+	$(function () {
+		$('.panel-body > table.table, .box-body > table.table, .modal-body > table.table').each(function () {
+			if (!$(this).closest('.table-responsive, .bootstrap-table').length) $(this).wrap('<div class="table-responsive"></div>');
+		});
+	});
 
 	function esc(s) {
 		return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {

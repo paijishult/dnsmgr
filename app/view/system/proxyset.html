@@ -70,7 +70,7 @@ function saveSetting(obj){
 				  window.location.reload()
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		},
 		error:function(data){
@@ -101,7 +101,7 @@ function proxytest(){
 			if(data.code == 0){
 				layer.alert('连通性测试成功！', {icon: 1})
 			}else{
-				layer.alert('连通性测试失败：'+data.msg, {icon: 2})
+				layer.alert('连通性测试失败：'+htmlEscape(data.msg), {icon: 2})
 			}
 		},
 		error:function(data){

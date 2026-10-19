@@ -124,15 +124,17 @@ class ApiKeyHelper
         if (is_string($domains)) {
             $domains = preg_split('/[\s,;]+/', $domains);
         }
-        if (!is_array($domains)) return [];
+        if (!is_array($domains) || count($domains) > 10000) throw new \InvalidArgumentException('域名范围应为文本或不超过10000项的数组');
         $result = [];
         foreach ($domains as $domain) {
+            if (!is_string($domain)) throw new \InvalidArgumentException('域名范围中包含无效值');
             $domain = strtolower(trim((string)$domain));
             $domain = rtrim($domain, '.');
             if (str_starts_with($domain, '*.')) $domain = substr($domain, 2);
             if ($domain === '') continue;
             $ascii = convertDomainToAscii($domain);
-            if (!$ascii || !checkDomain($ascii)) continue;
+            if (!$ascii || !checkDomain($ascii)) throw new \InvalidArgumentException('域名范围中包含无效域名：' . $domain);
+            \app\lib\RecordGuard::domainName($ascii);
             $result[] = $domain;
         }
         return array_values(array_unique($result));

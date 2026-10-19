@@ -4,6 +4,7 @@ namespace app\service;
 
 use app\lib\NewDb;
 use app\lib\DnsHelper;
+use app\lib\GuardedDns;
 use app\utils\CheckUtils;
 use app\utils\MsgNotice;
 
@@ -17,7 +18,12 @@ class TaskRunner
     private function db()
     {
         if (!$this->conn) {
-            $this->conn = NewDb::pool();
+            $config = config('database.connections.mysql');
+            $config['break_reconnect'] = false;
+            $config['deploy'] = 0;
+            $config['rw_separate'] = false;
+            $config['params'][\PDO::ATTR_PERSISTENT] = false;
+            $this->conn = NewDb::pool($config);
         }
         return $this->conn;
     }
@@ -32,14 +38,34 @@ class TaskRunner
 
     public function execute($row)
     {
+        $lock = new TaskLockService($this->db(), 'monitor:' . (int)$row['id']);
+        $failure = null;
+        $broken = false;
         try {
-            return $this->handle($row);
+            $lock->acquire();
+            $current = $this->db()->name('dmtask')->where('id', $row['id'])->find();
+            if (!$current || empty($current['active'])) return false;
+            return $this->handle($current);
         } catch (\Throwable $e) {
-            $this->closeDb(true);
+            $failure = $e;
             throw $e;
         } finally {
-            $this->closeDb();
+            try {
+                $lock->release();
+            } catch (\Throwable $unlockError) {
+                $broken = true;
+                if (!$failure) throw $unlockError;
+            } finally {
+                $this->closeDb($broken);
+            }
         }
+    }
+
+    private function dnsModel(array $domain): GuardedDns
+    {
+        $dns = DnsHelper::getModel2($domain);
+        if (!$dns) throw new \RuntimeException('DNS模块不存在');
+        return new GuardedDns($dns, $domain, $this->db());
     }
 
     private function handle($row)
@@ -49,10 +75,8 @@ class TaskRunner
             $remain = $this->db()->name('dmtask')->where(['did' => $row['did'], 'rr' => $row['rr'], 'type' => 1, 'status' => 0])->count();
             if ($remain <= $row['cycle'] && $row['status'] == 0) {
                 $action = 2;
-                $this->db()->name('dmtask')->where('id', $row['id'])->update(['status' => 1, 'errcount' => 0, 'switchtime' => time()]);
             } elseif ($remain > $row['cycle'] && $row['status'] == 1) {
                 $action = 1;
-                $this->db()->name('dmtask')->where('id', $row['id'])->update(['status' => 0, 'errcount' => 0, 'switchtime' => time()]);
             }
         } else {
             if ($row['checktype'] == 2) {
@@ -65,15 +89,13 @@ class TaskRunner
 
             $action = 0;
             if ($result['status'] && $row['status'] == 1) {
-                if ($row['cycle'] <= 1 || $row['errcount'] >= $row['cycle']) {
-                    $this->db()->name('dmtask')->where('id', $row['id'])->update(['status' => 0, 'errcount' => 0, 'switchtime' => time()]);
+                if ($row['cycle'] <= 1 || $row['errcount'] + 1 >= $row['cycle']) {
                     $action = 2;
                 } else {
                     $this->db()->name('dmtask')->where('id', $row['id'])->inc('errcount')->update();
                 }
             } elseif (!$result['status'] && $row['status'] == 0) {
-                if ($row['cycle'] <= 1 || $row['errcount'] >= $row['cycle']) {
-                    $this->db()->name('dmtask')->where('id', $row['id'])->update(['status' => 1, 'errcount' => 0, 'switchtime' => time()]);
+                if ($row['cycle'] <= 1 || $row['errcount'] + 1 >= $row['cycle']) {
                     $action = 1;
                 } else {
                     $this->db()->name('dmtask')->where('id', $row['id'])->inc('errcount')->update();
@@ -87,15 +109,18 @@ class TaskRunner
             $drow = $this->db()->name('domain')->alias('A')->join('account B', 'A.aid = B.id')->where('A.id', $row['did'])->field('A.*,B.type,B.config')->find();
             if (!$drow) {
                 echo '域名不存在（ID：'.$row['did'].'）'."\n";
-                $this->closeDb();
-                return;
+                return false;
             }
             $row['domain'] = $row['rr'] . '.' . $drow['name'];
         }
+        $res = false;
         if ($action == 1) {
             if ($row['type'] == 2) {
-                $dns = DnsHelper::getModel2($drow);
+                $dns = $this->dnsModel($drow);
                 $recordinfo = json_decode($row['recordinfo'], true);
+                if (!is_array($recordinfo) || !isset($recordinfo['Line'], $recordinfo['TTL'])) {
+                    throw new \RuntimeException('解析记录信息不完整，无法执行切换');
+                }
                 if ($drow['type'] == 'cloudflare' && $row['cdn'] == 1) {
                     $recordinfo['Line'] = '1';
                 }
@@ -104,7 +129,7 @@ class TaskRunner
                     $this->db()->name('log')->insert(['uid' => 0, 'domain' => $drow['name'], 'action' => '修改解析失败', 'data' => $dns->getError(), 'addtime' => date("Y-m-d H:i:s")]);
                 }
             } elseif ($row['type'] == 1 || $row['type'] == 3) {
-                $dns = DnsHelper::getModel2($drow);
+                $dns = $this->dnsModel($drow);
                 $res = $dns->setDomainRecordStatus($row['recordid'], '0');
                 if (!$res) {
                     $this->db()->name('log')->insert(['uid' => 0, 'domain' => $drow['name'], 'action' => '暂停解析失败', 'data' => $dns->getError(), 'addtime' => date("Y-m-d H:i:s")]);
@@ -112,8 +137,11 @@ class TaskRunner
             }
         } elseif ($action == 2) {
             if ($row['type'] == 2) {
-                $dns = DnsHelper::getModel2($drow);
+                $dns = $this->dnsModel($drow);
                 $recordinfo = json_decode($row['recordinfo'], true);
+                if (!is_array($recordinfo) || !isset($recordinfo['Line'], $recordinfo['TTL'])) {
+                    throw new \RuntimeException('解析记录信息不完整，无法执行切换');
+                }
                 if ($drow['type'] == 'cloudflare' && $row['cdn'] == 1) {
                     $recordinfo['Line'] = '0';
                 }
@@ -122,27 +150,33 @@ class TaskRunner
                     $this->db()->name('log')->insert(['uid' => 0, 'domain' => $drow['name'], 'action' => '修改解析失败', 'data' => $dns->getError(), 'addtime' => date("Y-m-d H:i:s")]);
                 }
             } elseif ($row['type'] == 1 || $row['type'] == 3) {
-                $dns = DnsHelper::getModel2($drow);
+                $dns = $this->dnsModel($drow);
                 $res = $dns->setDomainRecordStatus($row['recordid'], '1');
                 if (!$res) {
                     $this->db()->name('log')->insert(['uid' => 0, 'domain' => $drow['name'], 'action' => '启用解析失败', 'data' => $dns->getError(), 'addtime' => date("Y-m-d H:i:s")]);
                 }
             }
         } else {
-            $this->closeDb();
-            return;
+            return false;
         }
 
+        if (!$res) {
+            // Keep the previous effective state, so the next check retries this switch.
+            return false;
+        }
+        $nextStatus = $row['type'] == 3 ? ($action == 2 ? 1 : 0) : ($action == 1 ? 1 : 0);
+        $this->db()->name('dmtask')->where('id', $row['id'])->update(['status' => $nextStatus, 'errcount' => 0, 'switchtime' => time()]);
+        $row['status'] = $nextStatus;
         $this->db()->name('dmlog')->insert([
             'taskid' => $row['id'],
             'action' => $action,
             'errmsg' => isset($result) ? ($result['status'] ? null : $result['errmsg']) : null,
             'date' => date('Y-m-d H:i:s')
         ]);
-        $this->closeDb();
 
         if ($row['type'] != 3) {
             MsgNotice::send($action, $row, $result);
         }
+        return true;
     }
 }

@@ -61,19 +61,22 @@ $(document).ready(function(){
 		columns: [
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
 			{
 				field: 'rr',
+				escape: false,
 				title: '域名',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + value + '.' + row.domain + '</span>';
+					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + htmlEscape(value) + '.' + htmlEscape(row.domain) + '</span>';
 				}
 			},
 			{
 				field: 'cdn_type',
+				escape: false,
 				title: 'CDN运营商',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -92,14 +95,16 @@ $(document).ready(function(){
 			},
 			{
 				field: 'recordnum',
+				escape: false,
 				title: '解析数量',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="TTL：'+row.ttl+'" class="tips">'+value+'</span>';
+					return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="TTL：'+htmlEscape(row.ttl)+'" class="tips">'+htmlEscape(value)+'</span>';
 				}
 			},
 			{
 				field: 'ip_type',
+				escape: false,
 				title: '解析IP类型',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -108,11 +113,12 @@ $(document).ready(function(){
 						if(element == 'v4') value[index] = 'IPv4'
 						else if(element == 'v6') value[index] = 'IPv6'
 					});
-					return value.join(',');
+					return htmlEscape((Array.isArray(value) ? value : []).join(','));
 				}
 			},
 			{
 				field: 'active',
+				escape: false,
 				title: '任务开关',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -125,14 +131,16 @@ $(document).ready(function(){
 			},
 			{
 				field: 'updatetime',
+				escape: false,
 				title: '上次更新时间',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return value ? value : '无';
+					return value ? htmlEscape(value) : '无';
 				}
 			},
 			{
 				field: 'status',
+				escape: false,
 				title: '上次更新结果',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -147,11 +155,12 @@ $(document).ready(function(){
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '<a href="javascript:runTask(\''+row.id+'\')" class="btn btn-success btn-xs">手动更新</a>&nbsp;&nbsp;';
 					html += '<a href="/optimizeip/opipform/edit?id='+row.id+'" class="btn btn-primary btn-xs">修改</a>&nbsp;&nbsp;';
-					html += '<a href="/record/'+row.did+'?keyword='+row.rr+'" class="btn btn-default btn-xs" target="_blank">解析</a>&nbsp;&nbsp;';
+					html += '<a href="/record/'+row.did+'?keyword='+encodeURIComponent(row.rr)+'" class="btn btn-default btn-xs" target="_blank">解析</a>&nbsp;&nbsp;';
 					html += '<a href="javascript:delItem(\''+row.id+'\')" class="btn btn-danger btn-xs">删除</a>&nbsp;&nbsp;';
 					return html;
 				}
@@ -171,7 +180,7 @@ function setActive(id, active){
 			layer.msg('修改成功', {icon: 1, time:800});
 			$('#listTable').bootstrapTable('refresh');
 		} else {
-			layer.msg(data.msg, {icon: 2});
+			layer.msg(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }
@@ -184,7 +193,7 @@ function delItem(id){
 				layer.msg('删除成功', {icon: 1, time:800});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -194,10 +203,10 @@ function runTask(id){
 	$.post('/optimizeip/opipform/run', {id: id}, function(data){
 		layer.close(ii);
 		if(data.code == 0) {
-			layer.alert(data.msg, {icon: 1});
+			layer.alert(htmlEscape(data.msg), {icon: 1});
 			$('#listTable').bootstrapTable('refresh');
 		} else {
-			layer.alert(data.msg, {icon: 2});
+			layer.alert(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }

@@ -86,6 +86,17 @@
             <input type="text" name="remark" v-model="set.remark" placeholder="可留空" class="form-control">
         </div>
     </div>
+    <div class="form-group">
+        <label class="col-sm-3 control-label">部署后验收</label>
+        <div class="col-sm-6">
+            <label class="checkbox-inline"><input type="checkbox" v-model="verification.enabled"> 连接站点并核对实际生效的证书</label>
+            <div v-show="verification.enabled" style="margin-top:12px">
+                <div class="form-group"><label for="verify-host">站点域名</label><input id="verify-host" type="text" class="form-control" v-model="verification.host" placeholder="example.com"></div>
+                <div class="row"><div class="col-xs-6"><label for="verify-port">HTTPS端口</label><select id="verify-port" class="form-control" v-model.number="verification.port"><option :value="443">443</option><option :value="8443">8443</option></select></div><div class="col-xs-6"><label for="verify-timeout">超时（秒）</label><input id="verify-timeout" type="number" min="1" max="10" class="form-control" v-model.number="verification.timeout"></div></div>
+                <p class="help-block">填写证书覆盖的公网域名。验收通过后任务才显示已完成；未生效时可单独重试验收。</p>
+            </div>
+        </div>
+    </div>
     <div class="form-group" v-show="note">
         <div class="col-sm-offset-3 col-sm-6">
             <div class="alert alert-dismissible alert-info">
@@ -108,8 +119,8 @@
 <script src="/static/js/select2-i18n-zh-CN-4.0.13.min.js"></script>
 <script src="/static/js/bootstrapValidator.min.js"></script>
 <script>
-var info = {$info|json_encode|raw};
-var typeList = {$typeList|json_encode|raw};
+var info = {:json_encode($info, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var typeList = {:json_encode($typeList, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
 new Vue({
     el: '#app',
     data: {
@@ -124,6 +135,7 @@ new Vue({
         },
         inputs: {},
         config: {},
+        verification: {enabled: false, host: '', port: 443, timeout: 5},
         typeList: typeList,
         note: '',
     },
@@ -156,7 +168,9 @@ new Vue({
             Object.keys(info).forEach((key) => {
                 this.set[key] = info[key]
             })
-            var config = JSON.parse(info.config);
+            var config = {};
+            try { config = JSON.parse(info.config || '{}') || {}; } catch (e) { layer.msg('部署配置格式异常，请重新填写', {icon: 2}); }
+            if (config._verify_tls) this.verification = Object.assign({}, this.verification, config._verify_tls);
             this.inputs = typeList[this.set.type].taskinputs;
             this.note = typeList[this.set.type].tasknote;
             $.each(this.inputs, (name, item) => {
@@ -207,6 +221,10 @@ new Vue({
                     this.config[key] = this.trim(this.config[key]);
                 }
             })
+            if (this.verification.enabled && !this.trim(this.verification.host)) {
+                layer.msg('请填写验收站点域名', {icon: 2}); return false;
+            }
+            this.config._verify_tls = Object.assign({}, this.verification, {host: this.trim(this.verification.host)});
             this.set.config = JSON.stringify(this.config);
             var ii = layer.load(2, {shade:[0.1,'#fff']});
             $.ajax({
@@ -217,14 +235,14 @@ new Vue({
                 success: function(data) {
                     layer.close(ii);
                     if(data.code == 0){
-                        layer.alert(data.msg, {icon: 1}, function(){
+                        layer.alert(htmlEscape(data.msg), {icon: 1}, function(){
                             if(document.referrer.indexOf('/cert/deploytask?') > 0)
                                 window.location.href = document.referrer;
                             else
                                 window.location.href = '/cert/deploytask';
                         });
                     }else{
-                        layer.alert(data.msg, {icon: 2});
+                        layer.alert(htmlEscape(data.msg), {icon: 2});
                     }
                 },
                 error: function(data){

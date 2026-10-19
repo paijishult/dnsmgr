@@ -9,6 +9,7 @@
 			<a href="#start">开始使用</a>
 			<a href="#auth">签名与示例代码</a>
 			<a href="#scopes">权限范围</a>
+			<a href="#dns-changes">变更预览与后台任务</a>
 			{foreach $groups as $g}<a href="#g-{$g.key}">{$g.name}<span>{:count($g['items'])}</span></a>{/foreach}
 		</nav>
 	</div>
@@ -20,7 +21,7 @@
 			<div class="box-tools pull-right"><a href="/apikey" class="btn btn-primary btn-sm"><i class="fa fa-key"></i> 管理API密钥</a></div>
 		</div>
 		<div class="box-body doc-prose">
-			<p>共 <b>{$total}</b> 个接口，全部使用 <code>POST</code> 请求，参数以表单格式（<code>application/x-www-form-urlencoded</code>）提交，返回 JSON。接口地址前缀：</p>
+			<p>以下基础接口与扩展接口全部使用 <code>POST</code> 请求，参数以表单格式（<code>application/x-www-form-urlencoded</code>）提交，返回 JSON。接口地址前缀：</p>
 			<div class="copy-line"><code id="baseUrl">{$siteurl}/api</code><button class="btn btn-default btn-xs" data-copy="#baseUrl"><i class="fa fa-copy"></i> 复制</button></div>
 			<p>每个请求都需要携带以下三个认证参数，两种身份任选其一：</p>
 			<table class="table table-bordered doc-table">
@@ -131,6 +132,26 @@ call('/domain', { offset: 0, limit: 20 }).then(console.log);</pre></div></div>
 		</div>
 	</div>
 
+	<div class="box" id="dns-changes">
+		<div class="box-header with-border"><i class="fa fa-history fa-fw"></i><h3 class="box-title">变更预览与后台任务</h3></div>
+		<div class="box-body doc-prose">
+			<p>沿用上方 API 签名方式。下列路径均在 <code>/api</code> 前缀之后，<code>:id</code> 是系统中的域名 ID。预览只展示差异，执行前再次检查域名权限和当前记录是否变化。</p>
+			<div class="table-responsive"><table class="table table-bordered doc-table"><thead><tr><th>POST 路径</th><th>权限</th><th>参数及返回</th></tr></thead><tbody>
+				<tr><td><code>/record/history/data/:id</code></td><td><code>record:read</code></td><td><code>offset</code>、<code>limit</code> 获取快照列表；传 <code>snapshotid</code> 获取该快照的记录数组 <code>data</code>。</td></tr>
+				<tr><td><code>/record/snapshot/:id</code></td><td><code>record:write</code></td><td>可选 <code>label</code>，返回 <code>snapshot_id</code>；每个域名最多保留最近 100 份。</td></tr>
+				<tr><td><code>/record/preview/:id</code></td><td><code>record:read</code></td><td><code>operations</code> 为 JSON 数组，最多 500 项、1 MB；返回 <code>data.token</code>、<code>data.expires</code>、<code>data.changes</code>。</td></tr>
+				<tr><td><code>/record/rollback/preview/:id</code></td><td><code>record:write</code></td><td>传 <code>snapshotid</code>，返回回滚差异及预览令牌；根域名 NS、SOA 保持原样。</td></tr>
+				<tr><td><code>/record/apply/:id</code></td><td><code>record:write</code></td><td>传 <code>token</code>，立即执行已预览的差异。查看 <code>data.results</code> 中每项的 <code>index</code>、<code>success</code>、<code>message</code>；部分失败时 <code>code=-1</code>，应核对现状并重新预览。</td></tr>
+				<tr><td><code>/batch/enqueue</code></td><td><code>record:write</code></td><td><code>did</code>、<code>token</code>，可选 <code>name</code>；返回任务 <code>id</code>。由现有计划任务在后台执行。</td></tr>
+				<tr><td><code>/batch/data</code></td><td><code>record:read</code></td><td><code>offset</code>、<code>limit</code>；返回任务列表 <code>total</code>、<code>rows</code>，每页最多 100 条。</td></tr>
+				<tr><td><code>/batch/details</code></td><td><code>record:read</code></td><td>传任务 <code>id</code>；返回任务摘要 <code>task</code> 及逐项 <code>results</code>。<code>index</code> 从 0 开始。</td></tr>
+				<tr><td><code>/batch/task/retry</code><br><code>/batch/task/cancel</code></td><td><code>record:write</code></td><td>传任务 <code>id</code>。失败且未过期的任务可重试；取消在当前云端请求结束后的检查点生效。</td></tr>
+			</tbody></table></div>
+			<p><code>operations</code> 支持 <code>add</code>、<code>update</code>、<code>delete</code>、<code>status</code>、<code>remark</code>。修改已有记录时需传该域名真实的 <code>recordid</code>；添加或修改传 <code>name</code>、<code>type</code>、<code>value</code>，可选 <code>line</code>、<code>ttl</code>、<code>mx</code>、<code>weight</code>、<code>remark</code>。</p>
+			<pre class="code">[{"action":"add","name":"www","type":"A","value":"192.0.2.1","line":"default","ttl":600}]</pre>
+			<p>预览令牌有效期 10 分钟，绑定当前身份和域名，执行或入队后一次性消耗。后台任务有效期 24 小时，执行期间持续复核权限；凭据或解析现状变化时应重新预览。任务状态：<code>0</code> 排队、<code>1</code> 执行中、<code>2</code> 完成、<code>3</code> 失败、<code>4</code> 取消。</p>
+		</div>
+	</div>
 	<div id="noResult" class="box" style="display:none"><div class="box-body text-center text-muted" style="padding:32px">没有找到匹配的接口，换个关键词试试</div></div>
 
 	{foreach $groups as $g}

@@ -81,37 +81,42 @@ $(document).ready(function(){
 			},
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
 			{
 				field: 'typename',
+				escape: false,
 				title: '证书账户',
 				sortable: true,
 				formatter: function(value, row, index) {
 					if(value){
-						return '<span title="'+htmlEscape(row.aremark)+'" data-toggle="tooltip" data-placement="right"><img src="/static/images/'+row.icon+'" class="type-logo">'+value+'('+row.aid+')</span>';
+						return '<span title="'+htmlEscape(row.aremark)+'" data-toggle="tooltip" data-placement="right"><img src="/static/images/'+encodeURIComponent(row.icon || '')+'" class="type-logo">'+htmlEscape(value)+'('+row.aid+')</span>';
 					}
 					return '手动续期';
 				}
 			},
 			{
 				field: 'domains',
+				escape: false,
 				title: '绑定域名',
 				formatter: function(value, row, index) {
-					return value.join('<br/>');
+					return (Array.isArray(value) ? value : []).map(htmlEscape).join('<br/>');
 				}
 			},
 			{
 				field: 'keytype',
+				escape: false,
 				title: '证书信息',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<span class="text-muted">签名算法:</span>'+row.keytype+'('+row.keysize+')'+(row.issuer?'<br/><span class="text-muted">颁发机构:</span>'+row.issuer:'');
+					return '<span class="text-muted">签名算法:</span>'+htmlEscape(row.keytype)+'('+htmlEscape(row.keysize)+')'+(row.issuer?'<br/><span class="text-muted">颁发机构:</span>'+htmlEscape(row.issuer):'');
 				}
 			},
 			{
 				field: 'isauto',
+				escape: false,
 				title: '自动续签',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -124,24 +129,26 @@ $(document).ready(function(){
 			},
 			{
 				field: 'issuetime',
+				escape: false,
 				title: '签发时间',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return value ? value.substring(0,10) : '暂未签发';
+					return value ? htmlEscape(value.substring(0,10)) : '暂未签发';
 				}
 			},
 			{
 				field: 'end_day',
+				escape: false,
 				title: '到期时间',
 				sortable: true,
 				formatter: function(value, row, index) {
 					if(value != null){
 						if(value > 7){
-							return '<span title="'+row.expiretime+'" data-toggle="tooltip" data-placement="right" style="color:green">剩余' + value + '天<span>';
+							return '<span title="'+htmlEscape(row.expiretime)+'" data-toggle="tooltip" data-placement="right" style="color:green">剩余' + htmlEscape(value) + '天</span>';
 						}else if(value > 0){
-							return '<span title="'+row.expiretime+'" data-toggle="tooltip" data-placement="right" style="color:#ff7f00">剩余' + value + '天<span>';
+							return '<span title="'+htmlEscape(row.expiretime)+'" data-toggle="tooltip" data-placement="right" style="color:#ff7f00">剩余' + htmlEscape(value) + '天</span>';
 						}else{
-							return '<span title="'+row.expiretime+'" data-toggle="tooltip" data-placement="right" style="color:red">已过期<span>';
+							return '<span title="'+htmlEscape(row.expiretime)+'" data-toggle="tooltip" data-placement="right" style="color:red">已过期<span>';
 						}
 					}else{
 						return '暂未签发';
@@ -150,6 +157,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'status',
+				escape: false,
 				title: '状态',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -199,15 +207,16 @@ $(document).ready(function(){
 							if(diff > 0){
 								var min = Math.floor(diff / 60000);
 								var sec = Math.floor((diff - min * 60000) / 1000);
-								return '<span title="'+min+'分'+sec+'秒后自动重试" data-toggle="tooltip" data-placement="top" class="label label-danger">'+title+'</span>'+(row.error?' <span onclick="showmsg(\''+row.error+'\')" class="tips" title="失败原因"><i class="fa fa-info-circle"></i></span>':'');
+								return '<span title="'+min+'分'+sec+'秒后自动重试" data-toggle="tooltip" data-placement="top" class="label label-danger">'+title+'</span>'+(row.error?' <span data-error="'+htmlEscape(row.error)+'" onclick="showmsg(this.getAttribute(\'data-error\'))" class="tips" title="失败原因"><i class="fa fa-info-circle"></i></span>':'');
 							}
 						}
-						return '<span class="label label-danger">'+title+'</span>'+(row.error?' <span onclick="showmsg(\''+row.error+'\')" class="tips" title="失败原因"><i class="fa fa-info-circle"></i></span>':'');
+						return '<span class="label label-danger">'+title+'</span>'+(row.error?' <span data-error="'+htmlEscape(row.error)+'" onclick="showmsg(this.getAttribute(\'data-error\'))" class="tips" title="失败原因"><i class="fa fa-info-circle"></i></span>':'');
 					}
 				}
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '';
@@ -229,7 +238,7 @@ $(document).ready(function(){
 					}
 					html += '<a href="/cert/order/edit?id='+row.id+'" class="btn btn-primary btn-xs"><i class="fa fa-edit"></i> 修改</a>&nbsp;&nbsp;';
 					html += '<div class="btn-group dropdown-group" role="group"><button type="button" class="btn btn-info btn-xs dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">更多 <span class="caret"></span></button><ul class="dropdown-menu">';
-					html += '<li><a href="javascript:showLog(\''+row.processid+'\')">查看日志</a></li>';
+					html += '<li><a href="javascript:showLog(\''+jsEscape(row.processid)+'\')">查看日志</a></li>';
 					if(row.status == 3){
 						html += '<li><a href="/cert/deploytask?oid='+row.id+'">部署任务</a></li>';
 						if(row.aid > 0){
@@ -248,22 +257,6 @@ $(document).ready(function(){
 		],
 		onLoadSuccess: function(data) {
 			$('[data-toggle="tooltip"]').tooltip()
-			$('.dropdown-group').on('show.bs.dropdown', function (e) {
-				var btnPos = $(e.target)[0].getBoundingClientRect();
-				var screenWidth = $(window).width();
-				var screenHeight = $(window).height();
-				var childrenWidth = $(e.target).children('.dropdown-menu').width();
-				var childrenHeight = $(e.target).children('.dropdown-menu').height();
-				var top = btnPos.bottom;
-				if(top + childrenHeight + 12 > screenHeight){
-					top = btnPos.top - childrenHeight - 12;
-				}
-				var left = btnPos.left;
-				if(left + childrenWidth + 7 > screenWidth){
-					left = screenWidth - childrenWidth - 7;
-				}
-				$(e.target).children('.dropdown-menu').css({position:'fixed', top:top, left:left});
-			});
 		},
 		onPageChange: function(number, size){
 			setStoredPageSize(pageSizeKey, size);
@@ -271,7 +264,7 @@ $(document).ready(function(){
 	})
 })
 function showmsg(msg){
-	layer.alert(msg, {icon: 0, title: '失败原因'});
+	layer.alert(htmlEscape(msg), {icon: 0, title: '失败原因'});
 }
 function setAuto(id, status){
 	$.post('/cert/order/setauto', {id: id, isauto: status}, function(data){
@@ -279,7 +272,7 @@ function setAuto(id, status){
 			layer.msg('已'+(status==1?'开启':'关闭')+'自动续签', {icon: 1, time:800});
 			$('#listTable').bootstrapTable('refresh');
 		} else {
-			layer.msg(data.msg, {icon: 2});
+			layer.msg(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }
@@ -294,7 +287,7 @@ function delItem(id,status){
 				layer.msg('删除成功', {icon: 1, time:800});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -310,17 +303,17 @@ function doOrder(id, reset){
 		success: function(data) {
 			layer.close(ii);
 			if(data.code == 0) {
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
 				if(data.msg == '订单正在处理中，请稍后再试'){
-					layer.alert(data.msg, {icon: 2}, function(){
+					layer.alert(htmlEscape(data.msg), {icon: 2}, function(){
 						layer.closeAll();
 						var row = $("#listTable").bootstrapTable('getRowByUniqueId', id);
 						showLog(row.processid)
 					});
 				}else{
-					layer.alert(data.msg, {icon: 2});
+					layer.alert(htmlEscape(data.msg), {icon: 2});
 					$('#listTable').bootstrapTable('refresh');
 				}
 			}
@@ -340,7 +333,7 @@ function resetOrder(id){
 				layer.msg('重置订单状态成功', {icon: 1, time:800});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -356,7 +349,7 @@ function revokeOrder(id){
 				layer.alert('吊销证书成功！', {icon: 1});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -378,10 +371,10 @@ function download(id){
 				title: '下载证书',
 				area: [$(window).width() > 768 ? '600px' : '100%', '360px'],
 				shadeClose: true,
-				content: '<div class="modal-body"><div class="row text-center"><div class="form-group col-xs-6"><label>证书(PEM格式)</label><textarea rows="6" class="form-control" name="fullchain">'+data.data.fullchain+'</textarea><a onclick="copy(\'fullchain\')" class="btn btn-default"><i class="fa fa-copy"></i> 复制</a>&nbsp;&nbsp;<a onclick="downloadFile(\'fullchain.crt\',\'fullchain\')" class="btn btn-default"><i class="fa fa-download"></i> 下载</a></div><div class="form-group col-xs-6"><label>私钥(PEM格式)</label><textarea rows="6" class="form-control" name="privatekey">'+data.data.privatekey+'</textarea><a onclick="copy(\'privatekey\')" class="btn btn-default"><i class="fa fa-copy"></i> 复制</a>&nbsp;&nbsp;<a onclick="downloadFile(\'private.key\',\'privatekey\')" class="btn btn-default"><i class="fa fa-download"></i> 下载</a></div></div><hr/><label>IIS服务器(pfx格式)：</label><input type="hidden" name="pfx" value="'+data.data.pfx+'"><a onclick="downloadPFX()" class="btn btn-default"><i class="fa fa-download"></i> 下载</a>（密码为123456）</div>',
+				content: '<div class="modal-body"><div class="row text-center"><div class="form-group col-xs-6"><label>证书(PEM格式)</label><textarea rows="6" class="form-control" name="fullchain">'+htmlEscape(data.data.fullchain)+'</textarea><a onclick="copy(\'fullchain\')" class="btn btn-default"><i class="fa fa-copy"></i> 复制</a>&nbsp;&nbsp;<a onclick="downloadFile(\'fullchain.crt\',\'fullchain\')" class="btn btn-default"><i class="fa fa-download"></i> 下载</a></div><div class="form-group col-xs-6"><label>私钥(PEM格式)</label><textarea rows="6" class="form-control" name="privatekey">'+htmlEscape(data.data.privatekey)+'</textarea><a onclick="copy(\'privatekey\')" class="btn btn-default"><i class="fa fa-copy"></i> 复制</a>&nbsp;&nbsp;<a onclick="downloadFile(\'private.key\',\'privatekey\')" class="btn btn-default"><i class="fa fa-download"></i> 下载</a></div></div><hr/><label>IIS服务器(pfx格式)：</label><input type="hidden" name="pfx" value="'+htmlEscape(data.data.pfx)+'"><a onclick="downloadPFX()" class="btn btn-default"><i class="fa fa-download"></i> 下载</a>（密码为123456）</div>',
 			});
 		} else {
-			layer.alert(data.msg, {icon: 2});
+			layer.alert(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }
@@ -425,7 +418,7 @@ function showLog(processid){
 				area: [$(window).width() > 768 ? '600px' : '100%', '400px'],
 				shadeClose: true,
 				resize: false,
-				content: '<div class="modal-log"><pre class="pre-log" id="execLog">'+data.data+'</pre></div>',
+				content: '<div class="modal-log"><pre class="pre-log" id="execLog">'+htmlEscape(data.data)+'</pre></div>',
 				success: function(){
 					var exec_log = $('#execLog');
 					exec_log[0].scrollTop = exec_log[0].scrollHeight
@@ -433,7 +426,7 @@ function showLog(processid){
 						$.post('/cert/order/show_log', {processid: processid}, function(data){
 							if(data.code == 0 && data.time != filemtime) {
 								var exec_log = $('#execLog');
-								exec_log.html(data.data);
+								exec_log.text(data.data);
 								filemtime = data.time;
 								exec_log[0].scrollTop = exec_log[0].scrollHeight
 							}
@@ -445,7 +438,7 @@ function showLog(processid){
 				}
 			});
 		} else {
-			layer.msg(data.msg, {icon: 2, time: 600});
+			layer.msg(htmlEscape(data.msg), {icon: 2, time: 600});
 		}
 	}, 'json');
 }
@@ -475,10 +468,10 @@ function operation(action){
 			layer.close(ii);
 			if(data.code == 0){
 				layer.closeAll();
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	});

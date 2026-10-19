@@ -93,6 +93,7 @@ if (!function_exists('echo_value')) {
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>系统发生错误</title>
     <meta name="robots" content="noindex,nofollow" />
     <style>

@@ -109,10 +109,12 @@ class Dmonitor extends BaseController
                 'active' => 1
             ];
 
-            if (empty($task['did']) || empty($task['rr']) || empty($task['recordid']) || empty($task['main_value']) || empty($task['frequency']) || empty($task['cycle'])) {
+            if (empty($task['did']) || empty($task['rr']) || isNullOrEmpty($task['recordid']) || empty($task['main_value']) || empty($task['frequency'])) {
                 return json(['code' => -1, 'msg' => '必填项不能为空']);
             }
-            if ($task['checktype'] > 0 && $task['timeout'] > $task['frequency']) {
+            $validationError = $this->validateTask($task);
+            if ($validationError !== null) return json(['code' => -1, 'msg' => $validationError]);
+            if ($task['type'] !== 3 && $task['checktype'] > 0 && $task['timeout'] > $task['frequency']) {
                 return json(['code' => -1, 'msg' => '为保障容灾切换任务正常运行，最大超时时间不能大于检测间隔']);
             }
             if ($task['type'] == 2 && $task['backup_value'] == $task['main_value']) {
@@ -144,10 +146,12 @@ class Dmonitor extends BaseController
                 'recordinfo' => input('post.recordinfo', null, 'trim'),
             ];
 
-            if (empty($task['did']) || empty($task['rr']) || empty($task['recordid']) || empty($task['main_value']) || empty($task['frequency']) || empty($task['cycle'])) {
+            if (empty($task['did']) || empty($task['rr']) || isNullOrEmpty($task['recordid']) || empty($task['main_value']) || empty($task['frequency'])) {
                 return json(['code' => -1, 'msg' => '必填项不能为空']);
             }
-            if ($task['checktype'] > 0 && $task['timeout'] > $task['frequency']) {
+            $validationError = $this->validateTask($task);
+            if ($validationError !== null) return json(['code' => -1, 'msg' => $validationError]);
+            if ($task['type'] !== 3 && $task['checktype'] > 0 && $task['timeout'] > $task['frequency']) {
                 return json(['code' => -1, 'msg' => '为保障容灾切换任务正常运行，最大超时时间不能大于检测间隔']);
             }
             if ($task['type'] == 2 && $task['backup_value'] == $task['main_value']) {
@@ -189,6 +193,28 @@ class Dmonitor extends BaseController
         } else {
             return json(['code' => -1, 'msg' => '参数错误']);
         }
+    }
+
+    private function validateTask(array $task): ?string
+    {
+        foreach (['rr'=>253,'recordid'=>2048,'main_value'=>2048,'backup_value'=>2048,'checkurl'=>4096,'remark'=>2000,'recordinfo'=>65536] as $field => $maximum) {
+            if ($task[$field] !== null && (!is_string($task[$field]) || strlen($task[$field]) > $maximum)) return '监控参数格式不正确或过长';
+        }
+        if (!in_array($task['type'], [1, 2, 3], true) || !in_array($task['checktype'], [0, 1, 2], true)) return '监控类型无效';
+        if ($task['frequency'] < 1 || $task['frequency'] > 86400) return '检测间隔应为1到86400秒';
+        if ($task['cycle'] < ($task['type'] === 3 ? 0 : 1) || $task['cycle'] > 10000) return '连续次数或条件数量无效';
+        if ($task['type'] !== 3 && $task['checktype'] > 0 && ($task['timeout'] < 1 || $task['timeout'] > 120)) return '检测超时应为1到120秒';
+        if ($task['type'] !== 3 && $task['checktype'] === 1 && ($task['tcpport'] < 1 || $task['tcpport'] > 65535)) return 'TCP端口无效';
+        if ($task['type'] !== 3 && $task['checktype'] === 2) {
+            $parts = parse_url($task['checkurl']);
+            if (!$parts || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true) || empty($parts['host']) || isset($parts['user']) || isset($parts['pass'])) return 'HTTP检测地址必须为不含账号密码的http(s)地址';
+        }
+        if ($task['type'] === 2 && empty($task['backup_value'])) return '备用解析值不能为空';
+        if ($task['type'] === 2) {
+            $info = json_decode($task['recordinfo'], true);
+            if (!is_array($info) || !isset($info['Line'], $info['TTL'])) return '解析记录信息不完整，请重新获取记录';
+        }
+        return null;
     }
 
     public function taskform()

@@ -141,11 +141,11 @@ new Vue({
                 success: function(data) {
                     layer.close(ii);
                     if(data.code == 0){
-                        layer.alert(data.msg, {icon: 1}, function(){
+                        layer.alert(htmlEscape(data.msg), {icon: 1}, function(){
                             window.location.href = '/domain';
                         });
                     }else{
-                        layer.alert(data.msg, {icon: 2});
+                        layer.alert(htmlEscape(data.msg), {icon: 2});
                     }
                 },
                 error: function(data){

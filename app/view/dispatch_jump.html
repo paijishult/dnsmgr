@@ -3,7 +3,7 @@
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
     <title>温馨提示</title>
-    <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no, width=device-width">
+    <meta name="viewport" content="initial-scale=1, width=device-width">
     <meta name="renderer" content="webkit"/>
     <style type="text/css">
         *{box-sizing:border-box;margin:0;padding:0;font-family:Lantinghei SC,Open Sans,Arial,Hiragino Sans GB,Microsoft YaHei,"微软雅黑",STHeiti,WenQuanYi Micro Hei,SimSun,sans-serif;-webkit-font-smoothing:antialiased}
@@ -40,17 +40,26 @@
     <p class="clearfix">
         <a href="javascript:history.go(-1);" class="btn btn-grey">返回上一页</a>
         {if $url}
-            <a href="{$url}" class="btn btn-primary">立即跳转</a>
+            <a href="#" id="jump-next" class="btn btn-primary">立即跳转</a>
         {/if}
     </p>
 </div>
     <script type="text/javascript">
         (function () {
             var wait = document.getElementById('wait');
+            if (!wait) return;
+            var target;
+            try { target = new URL({:json_encode($url, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)}, window.location.href); } catch (e) { return; }
+            if (!/^https?:$/.test(target.protocol)) {
+                document.getElementById('jump-next').remove();
+                wait.parentNode.textContent = '无法跳转，请返回上一页';
+                return;
+            }
+            document.getElementById('jump-next').href = target.href;
             var interval = setInterval(function () {
                 var time = --wait.innerHTML;
                 if (time <= 0) {
-                    location.href = "{$url}";
+                    location.href = target.href;
                     clearInterval(interval);
                 }
             }, 1000);

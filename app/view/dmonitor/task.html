@@ -70,35 +70,39 @@ $(document).ready(function(){
 			},
 			{
 				field: 'id',
+				escape: true,
 				title: 'ID',
 				sortable: true
 			},
 			{
 				field: 'rr',
+				escape: false,
 				title: '域名',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + value + '.' + row.domain + '</span>';
+					return '<span title="'+htmlEscape(row.remark)+'" data-toggle="tooltip" data-placement="right">' + htmlEscape(value) + '.' + htmlEscape(row.domain) + '</span>';
 				}
 			},
 			{
 				field: 'main_value',
+				escape: false,
 				title: '解析记录',
 				sortable: true,
 				formatter: function(value, row, index) {
-					return value;
+					return htmlEscape(value);
 				}
 			},
 			{
 				field: 'type',
+				escape: false,
 				title: '切换设置',
 				formatter: function(value, row, index) {
 					if(value == 1) {
 						return '暂停解析';
 					} else if(value == 2) {
-						return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="备用：'+row.backup_value+'" class="tips">切换备用</span>';
+						return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="备用：'+htmlEscape(row.backup_value)+'" class="tips">切换备用</span>';
 					} else if(value == 3) {
-						return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="同域名正常数量<='+row.cycle+'" class="tips">条件开启</span>';
+						return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="同域名正常数量<='+htmlEscape(row.cycle)+'" class="tips">条件开启</span>';
 					} else {
 						return '无操作';
 					}
@@ -106,13 +110,14 @@ $(document).ready(function(){
 			},
 			{
 				field: 'checktype',
+				escape: false,
 				title: '检测协议',
 				formatter: function(value, row, index) {
 					if(row.type <= 2){
 						if(value == 1) {
-							return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="'+row.tcpport+'端口" class="tips">TCP</span>';
+							return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="'+htmlEscape(row.tcpport)+'端口" class="tips">TCP</span>';
 						} else if(value == 2) {
-							return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="'+row.checkurl+'" class="tips">HTTP(S)</span>';
+							return '<span title="" data-toggle="tooltip" data-placement="bottom" data-original-title="'+htmlEscape(row.checkurl)+'" class="tips">HTTP(S)</span>';
 						} else {
 							return 'PING';
 						}
@@ -123,13 +128,15 @@ $(document).ready(function(){
 			},
 			{
 				field: 'frequency',
+				escape: false,
 				title: '检测间隔',
 				formatter: function(value, row, index) {
-					return value + '秒';
+					return htmlEscape(value) + '秒';
 				}
 			},
 			{
 				field: 'status',
+				escape: false,
 				title: '健康状况',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -142,6 +149,7 @@ $(document).ready(function(){
 			},
 			{
 				field: 'active',
+				escape: false,
 				title: '运行开关',
 				sortable: true,
 				formatter: function(value, row, index) {
@@ -154,11 +162,13 @@ $(document).ready(function(){
 			},
 			{
 				field: 'checktimestr',
+				escape: true,
 				title: '上次检测时间',
 				sortable: true
 			},
 			{
 				field: 'addtimestr',
+				escape: true,
 				title: '添加时间',
 				sortable: true,
 				visible: false
@@ -172,11 +182,12 @@ $(document).ready(function(){
 			},
 			{
 				field: 'action',
+				escape: false,
 				title: '操作',
 				formatter: function(value, row, index) {
 					var html = '<a href="/dmonitor/task/info/'+row.id+'" class="btn btn-info btn-xs">切换日志</a>&nbsp;&nbsp;';
 					html += '<a href="/dmonitor/task/edit?id='+row.id+'" class="btn btn-primary btn-xs">修改</a>&nbsp;&nbsp;';
-					html += '<a href="/record/'+row.did+'?subdomain='+row.rr+'" class="btn btn-default btn-xs" target="_blank">解析</a>&nbsp;&nbsp;';
+					html += '<a href="/record/'+row.did+'?subdomain='+encodeURIComponent(row.rr)+'" class="btn btn-default btn-xs" target="_blank">解析</a>&nbsp;&nbsp;';
 					html += '<a href="javascript:delItem(\''+row.id+'\')" class="btn btn-danger btn-xs">删除</a>&nbsp;&nbsp;';
 					return html;
 				}
@@ -196,7 +207,7 @@ function setActive(id, active){
 			layer.msg('修改成功', {icon: 1, time:800});
 			$('#listTable').bootstrapTable('refresh');
 		} else {
-			layer.msg(data.msg, {icon: 2});
+			layer.msg(htmlEscape(data.msg), {icon: 2});
 		}
 	}, 'json');
 }
@@ -209,7 +220,7 @@ function delItem(id){
 				layer.msg('删除成功', {icon: 1, time:800});
 				$('#listTable').bootstrapTable('refresh');
 			} else {
-				layer.msg(data.msg, {icon: 2});
+				layer.msg(htmlEscape(data.msg), {icon: 2});
 			}
 		}, 'json');
 	});
@@ -238,10 +249,10 @@ function operation(action){
 			layer.close(ii);
 			if(data.code == 0){
 				layer.closeAll();
-				layer.alert(data.msg, {icon: 1});
+				layer.alert(htmlEscape(data.msg), {icon: 1});
 				searchRefresh();
 			}else{
-				layer.alert(data.msg, {icon: 2});
+				layer.alert(htmlEscape(data.msg), {icon: 2});
 			}
 		}
 	});

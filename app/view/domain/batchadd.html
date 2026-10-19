@@ -65,9 +65,9 @@
 <script src="/static/js/layer/layer.js"></script>
 <script src="/static/js/bootstrapValidator.min.js"></script>
 <script>
-var recordLine = {$recordLine|json_encode|raw};
-var dnsconfig = {$dnsconfig|json_encode|raw};
-var defaultLine = recordLine[0].id;
+var recordLine = {:json_encode($recordLine, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var dnsconfig = {:json_encode($dnsconfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)};
+var defaultLine = recordLine.length ? recordLine[0].id : 'default';
 $(document).ready(function(){
     $("select[name=type]").change(function(){
 		if($(this).val() == 'MX'){
@@ -87,7 +87,7 @@ function initLine(option, elem){
 	$("#"+elem).empty();
 	$.each(recordLine, function(index, item){
 		if(item.parent == null){
-			option += '<option value="'+item.id+'">'+item.name+'</option>';
+			option += '<option value="'+htmlEscape(item.id)+'">'+htmlEscape(item.name)+'</option>';
 		}
 	})
 	$("#"+elem).append('<select name="line" class="form-control" onchange="changeLine(this, \''+elem+'\')">'+option+'</select>');
@@ -106,7 +106,7 @@ function changeLine(obj, elem){
 	if(tempLine.length > 0){
 		var option = '<option value="'+line+'">子集线路（非必填）</option>';
 		$.each(tempLine, function(index, item){
-			option += '<option value="'+item.id+'">'+item.name+'</option>';
+			option += '<option value="'+htmlEscape(item.id)+'">'+htmlEscape(item.name)+'</option>';
 		})
 		$("#"+elem).append('<select name="line" class="form-control" onchange="changeLine(this, \''+elem+'\')">'+option+'</select>');
 	}
@@ -125,7 +125,7 @@ function save(){
 		success : function(data) {
 			layer.close(ii);
 			if(data.code == 0){
-				layer.alert(data.msg,{
+				layer.alert(htmlEscape(data.msg),{
 					icon: 1,
 					closeBtn: false
 				}, function(){
@@ -135,7 +135,7 @@ function save(){
                         window.location.href = '/record/{$domainId}';
 				});
 			}else{
-				layer.alert(data.msg, {icon: 2})
+				layer.alert(htmlEscape(data.msg), {icon: 2})
 			}
 		}
 	});

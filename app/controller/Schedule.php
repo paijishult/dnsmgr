@@ -85,8 +85,16 @@ class Schedule extends BaseController
                 'active' => 1
             ];
 
-            if (empty($task['did']) || empty($task['rr']) || empty($task['recordid'])) {
+            if (empty($task['did']) || empty($task['rr']) || isNullOrEmpty($task['recordid'])) {
                 return json(['code' => -1, 'msg' => '必填项不能为空']);
+            }
+            try {
+                ScheduleService::validate($task);
+                if ((int)$task['type'] === 0 && ScheduleService::calculateNextTime($task) === 0) {
+                    return json(['code' => -1, 'msg' => '单次执行时间必须晚于当前时间']);
+                }
+            } catch (\InvalidArgumentException $e) {
+                return json(['code' => -1, 'msg' => $e->getMessage()]);
             }
             if (Db::name('sctask')->where('recordid', $task['recordid'])->where('switchtype', $task['switchtype'])->where('switchtime', $task['switchtime'])->find()) {
                 return json(['code' => -1, 'msg' => '当前定时切换策略已存在']);
@@ -112,8 +120,16 @@ class Schedule extends BaseController
                 'recordinfo' => input('post.recordinfo', null, 'trim'),
             ];
 
-            if (empty($task['did']) || empty($task['rr']) || empty($task['recordid'])) {
+            if (empty($task['did']) || empty($task['rr']) || isNullOrEmpty($task['recordid'])) {
                 return json(['code' => -1, 'msg' => '必填项不能为空']);
+            }
+            try {
+                ScheduleService::validate($task);
+                if ((int)$task['type'] === 0 && ScheduleService::calculateNextTime($task) === 0) {
+                    return json(['code' => -1, 'msg' => '单次执行时间必须晚于当前时间']);
+                }
+            } catch (\InvalidArgumentException $e) {
+                return json(['code' => -1, 'msg' => $e->getMessage()]);
             }
             if (Db::name('sctask')->where('recordid', $task['recordid'])->where('switchtype', $task['switchtype'])->where('switchtime', $task['switchtime'])->where('id', '<>', $id)->find()) {
                 return json(['code' => -1, 'msg' => '当前定时切换策略已存在']);
