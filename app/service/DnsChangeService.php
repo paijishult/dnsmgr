@@ -12,6 +12,8 @@ use think\facade\Db;
 class DnsChangeService
 {
     public const MAX_SNAPSHOT_BYTES = 8388608;
+    public const MAX_PREVIEW_BYTES = 2097152;
+    public const MAX_ACTIVE_PREVIEWS = 3;
     private $connection;
 
     public function __construct($connection = null)
@@ -89,7 +91,28 @@ class DnsChangeService
         }
         $token = bin2hex(random_bytes(32));
         $expires = time() + 600;
-        Cache::set('dns_preview_' . $token, ['actor' => $actor, 'domain' => self::domainIdentity($domain), 'fingerprint' => RecordGuard::fingerprint($records), 'changes' => $changes, 'expires' => $expires], 600);
+        $plan = ['actor' => $actor, 'domain' => self::domainIdentity($domain), 'fingerprint' => RecordGuard::fingerprint($records), 'changes' => $changes, 'expires' => $expires];
+        if (strlen(json_encode($plan, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)) > self::MAX_PREVIEW_BYTES) throw new RuntimeException('变更计划及原记录超过2MB，请减少每批记录数');
+        // File-cache expiry is lazy: abandoned random tokens otherwise leave
+        // their files behind forever. Bound retained plans per user, across keys.
+        $principal = request()->user;
+        $owner = hash('sha256', json_encode([$principal['type'] ?? '', (string)($principal['id'] ?? 0)], JSON_THROW_ON_ERROR));
+        $indexKey = 'dns_preview_owner_' . $owner;
+        $lock = self::resourceLock('preview-owner:' . $owner);
+        try {
+            $active = [];
+            foreach ((array)Cache::get($indexKey) as $entry) {
+                if (!is_array($entry) || !preg_match('/\A[a-f0-9]{64}\z/D', $entry['token'] ?? '')) continue;
+                if (($entry['expires'] ?? 0) <= time()) Cache::delete('dns_preview_' . $entry['token']);
+                elseif (is_array(Cache::get('dns_preview_' . $entry['token']))) $active[] = $entry;
+            }
+            while (count($active) >= self::MAX_ACTIVE_PREVIEWS) {
+                $oldest = array_shift($active);
+                if (Cache::delete('dns_preview_' . $oldest['token']) === false) throw new RuntimeException('无法清理旧预览，请检查缓存目录权限');
+            }
+            $active[] = ['token' => $token, 'expires' => $expires];
+            if (Cache::set($indexKey, $active, 0) === false || Cache::set('dns_preview_' . $token, $plan, 600) === false) throw new RuntimeException('无法保存变更预览，请检查缓存目录权限');
+        } finally { flock($lock, LOCK_UN); fclose($lock); }
         return ['token' => $token, 'expires' => $expires, 'changes' => $changes];
     }
 
@@ -98,7 +121,7 @@ class DnsChangeService
         $lock = self::lock($domain);
         try {
             $plan = $this->readPlan($domain, $token, $actor);
-            Cache::delete('dns_preview_' . $token);
+            if (Cache::delete('dns_preview_' . $token) === false) throw new RuntimeException('无法消费预览凭证，请检查缓存目录权限');
             return $plan;
         } finally { flock($lock, LOCK_UN); fclose($lock); }
     }
@@ -264,9 +287,14 @@ class DnsChangeService
 
     public static function lock(array $domain)
     {
+        return self::resourceLock((string)$domain['aid'] . ':' . $domain['name']);
+    }
+
+    private static function resourceLock(string $resource)
+    {
         $dir = runtime_path() . 'dns-locks';
         if (!is_dir($dir) && !mkdir($dir, 0700, true) && !is_dir($dir)) throw new RuntimeException('无法创建DNS变更锁');
-        $handle = fopen($dir . '/' . hash('sha256', (string)$domain['aid'] . ':' . $domain['name']) . '.lock', 'c');
+        $handle = fopen($dir . '/' . hash('sha256', $resource) . '.lock', 'c');
         if (!$handle || !flock($handle, LOCK_EX | LOCK_NB)) { if ($handle) fclose($handle); throw new RuntimeException('该域名正在执行其他变更，请稍后重试'); }
         return $handle;
     }

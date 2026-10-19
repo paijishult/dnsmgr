@@ -11,6 +11,24 @@ permissions:
   contents: read
 
 jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install verified Gitleaks
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            --output "$RUNNER_TEMP/gitleaks.tar.gz"
+          printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$RUNNER_TEMP/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/gitleaks.tar.gz" -C "$RUNNER_TEMP" gitleaks
+      - name: Scan full Git history and checked-out source
+        run: |
+          "$RUNNER_TEMP/gitleaks" git . --log-opts='--all' --redact --no-banner
+          "$RUNNER_TEMP/gitleaks" dir . --redact --no-banner
   php:
     runs-on: ubuntu-latest
     strategy:
@@ -28,6 +46,19 @@ jobs:
       - run: composer validate --strict
       - run: composer install --no-interaction --no-progress --prefer-dist --no-dev
       - run: composer audit --no-dev
+      - name: Validate documented Docker Compose example
+        if: matrix.php == '8.3'
+        env:
+          DNSMGR_DB_PASSWORD: ci-example-only
+          DNSMGR_ROOT_PASSWORD: ci-root-example-only
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, re
+          examples = re.findall(r'^```yaml\n(.*?)^```', pathlib.Path('README.md').read_text(), re.M | re.S)
+          assert len(examples) == 1, 'Expected one documented Compose example'
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'dnsmgr-compose.yaml').write_text(examples[0])
+          PY
+          docker compose --project-name dnsmgr-docs --file "$RUNNER_TEMP/dnsmgr-compose.yaml" config --quiet
       - name: PHP syntax
         run: find app config route tests -name '*.php' -print0 | xargs -0 -n1 php -l
       - run: php tests/run.php
@@ -76,7 +107,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mysql: ['mysql:5.6', 'mysql:8.0']
+        mysql: ['mysql:5.6', 'mysql:8.0', 'mysql:8.4']
     services:
       mysql:
         image: ${{ matrix.mysql }}

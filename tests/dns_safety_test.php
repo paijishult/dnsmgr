@@ -3,9 +3,11 @@
 namespace think\facade {
     class Cache {
         public static array $data = [];
-        public static function set($key, $value, $ttl = null) { self::$data[$key] = $value; }
+        public static bool $failSet = false;
+        public static bool $failDelete = false;
+        public static function set($key, $value, $ttl = null) { if (self::$failSet) return false; self::$data[$key] = $value; return true; }
         public static function get($key) { return self::$data[$key] ?? null; }
-        public static function delete($key) { unset(self::$data[$key]); }
+        public static function delete($key) { if (self::$failDelete) return false; unset(self::$data[$key]); return true; }
     }
     class Db {
         public static array $rows = [];
@@ -158,5 +160,28 @@ namespace {
     expect($response['code']===0 && $dns->records[0]['Value']==='192.0.2.7' && $dns->records[1]['Type']==='TXT' && $dns->records[2]['Type']==='MX','plain POST named batch edit preserves unrelated record types');
     $actor1=DnsChangeService::actor();request()->apiKey['id']=2;
     expect($actor1!==DnsChangeService::actor(),'API key identity included in actor binding');
+    $capDns=new DnsFake([row()]);$capped=[];
+    for($i=0;$i<5;$i++)$capped[]=$service->preview($domain,$capDns,[['action'=>'delete','recordid'=>'a']],'cap-actor')['token'];
+    expect(!isset(Cache::$data['dns_preview_'.$capped[0]],Cache::$data['dns_preview_'.$capped[1]]),'abandoned preview files evicted after three retained plans');
+    foreach(array_slice($capped,2) as $token)expect(isset(Cache::$data['dns_preview_'.$token]),'three newest preview plans remain available');
+    $another=$service->preview($domain,$capDns,[['action'=>'delete','recordid'=>'a']],'other-key-actor');
+    expect(!isset(Cache::$data['dns_preview_'.$capped[2]]),'different API keys share the user preview storage cap');
+    $previousUser=request()->user;request()->user['id']=9999;
+    $service->preview($domain,$capDns,[['action'=>'delete','recordid'=>'a']],'another-user');
+    expect(isset(Cache::$data['dns_preview_'.$another['token']]),'preview storage caps isolate different users');request()->user=$previousUser;
+    $largeRecords=[];$largeOps=[];
+    for($i=0;$i<60;$i++){$largeRecords[]=row('large'.$i,'host'.$i,'TXT',str_repeat('v',40000));$largeOps[]=['action'=>'delete','recordid'=>'large'.$i];}
+    $cacheCount=count(Cache::$data);
+    rejects(fn()=>$service->preview($domain,new DnsFake($largeRecords),$largeOps,'large-actor'),'oversized before-record plan rejected before cache write');
+    expect(count(Cache::$data)===$cacheCount,'rejected large preview does not allocate token cache files');
+    Cache::$failSet=true;
+    rejects(fn()=>$service->preview($domain,$capDns,[['action'=>'delete','recordid'=>'a']],'storage-failure'),'failed cache write does not issue a usable preview');
+    Cache::$failSet=false;
+    $preview=$service->preview($domain,$capDns,[['action'=>'delete','recordid'=>'a']],'consume-failure');
+    Cache::$failDelete=true;
+    rejects(fn()=>$service->apply($domain,$capDns,$preview['token'],'consume-failure'),'failed token consumption rejects execution');
+    expect($capDns->writes===0,'failed token consumption cannot trigger DNS writes');
+    rejects(fn()=>$service->preview($domain,$capDns,[['action'=>'delete','recordid'=>'a']],'eviction-failure'),'failed eviction cannot create an unbounded preview file');
+    Cache::$failDelete=false;
     echo 'DNS safety: ' . $checks . " checks passed\n";
 }

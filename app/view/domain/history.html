@@ -42,7 +42,7 @@ $(function () {
   function preview(plan) {
     token = plan.token; $('#applyMessage').empty(); $('#detailTitle').text('确认 DNS 变更'); $('#detailHead').empty().append('<tr><th>操作</th><th>当前记录</th><th>变更后</th></tr>'); $('#detailBody').empty();
     plan.changes.forEach(function (change) { var tr = $('<tr>').appendTo('#detailBody'), op = change.operation; cell(tr, actions[op.action] || op.action); cell(tr, summary(change.before)); cell(tr, op.action === 'delete' ? '删除该记录' : (op.action === 'status' ? (op.status === '1' ? '启用' : '暂停') : (op.action === 'remark' ? op.remark : summary(op)))); });
-    $('#previewExpiry').text(plan.changes.length ? '共 ' + plan.changes.length + ' 项变更，预览有效期 10 分钟。执行前会再次检查记录是否发生变化。' : '当前解析与快照一致，无需回滚。');
+    $('#previewExpiry').text(plan.changes.length ? '共 ' + plan.changes.length + ' 项变更，预览有效期 10 分钟，每个用户最多保留 3 个预览。执行前会再次检查记录是否发生变化。' : '当前解析与快照一致，无需回滚。');
     $('#applyChanges,#enqueueChanges,#enqueueOptions').toggle(!!token && plan.changes.length > 0); $('#applyChanges,#enqueueChanges').prop('disabled', false); $('#taskName').val(''); $('#detailModal').modal('show');
   }
   $('#snapshotTable').bootstrapTable({

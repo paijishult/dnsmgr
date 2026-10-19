@@ -3,6 +3,16 @@
 /vendor
 *.log
 .env
+.env.*
+!.env.example
+/data/
+/backups/
+*.pem
+*.key
+*.p12
+*.pfx
+/id_rsa
+/id_ed25519
 .ace-tool/
 /.codex-tmp/dns-panel-ref/
 /runtime

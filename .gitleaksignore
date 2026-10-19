@@ -1,0 +1,14 @@
+# Reviewed upstream false positives only. Commit-specific fingerprints cannot
+# suppress a different credential introduced by a future commit.
+# PEM envelope construction/conversion code, with no encoded private key body:
+c03927d04d0585ed575f032c747002e30cf22aed:app/lib/deploy/directadmin.php:private-key:175
+ebdc34cf4b3f9bb4ee31a90b5f80e6f5907f3ef4:app/lib/deploy/upyun.php:private-key:37
+b58db855ca84cf7526687a0d6bf7ae87b79802e6:app/lib/CertHelper.php:private-key:421
+# Shared uniCloud client signing constant, confirmed identical to public upstream:
+# https://github.com/netcccyun/dnsmgr/blob/main/app/lib/deploy/unicloud.php
+0a348b6cade41367f412e6b07f2d49a316ead902:app/lib/deploy/unicloud.php:generic-api-key:67
+# The same three current-source findings for gitleaks dir. CI scans Git history,
+# where every fingerprint also contains its immutable introducing commit.
+app/lib/deploy/directadmin.php:private-key:173
+app/lib/deploy/upyun.php:private-key:37
+app/lib/deploy/unicloud.php:generic-api-key:67
