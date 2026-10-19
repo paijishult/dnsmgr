@@ -234,7 +234,7 @@ sign = md5(keyid + timestamp + secret)
 | MySQL | 5.6 / 8.0 / 8.4；实际会话锁、断连接管、事务与幂等增量建表 |
 | 浏览器 | 54 个真实模板、桌面/手机 108 次页面检查、19 款皮肤及菜单/XSS/CSRF 回归 |
 | 依赖与凭据 | Composer 严格校验、生产依赖安全公告、Gitleaks 源码与历史扫描 |
-| 容器 | 实际启动 amd64 镜像，核对 PHP 扩展、nginx、健康检查和安装页，再发布 amd64/arm64 |
+| 容器 | amd64 / arm64 分别在原生机器构建并启动，检查 PHP 扩展、nginx、健康检查和安装页；两个架构都通过后发布正式标签 |
 
 ```bash
 composer validate --strict

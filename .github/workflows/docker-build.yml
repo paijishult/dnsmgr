@@ -22,9 +22,18 @@ jobs:
   regression-checks:
     uses: ./.github/workflows/checks.yml
   build-and-push:
+    name: Build and smoke (${{ matrix.arch }})
     needs: regression-checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 150
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     permissions:
       contents: read
       packages: write
@@ -39,16 +48,13 @@ jobs:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          tags="ghcr.io/${owner}/dnsmgr:latest,ghcr.io/${owner}/dnsmgr:sha-${GITHUB_SHA::7}"
+          tags="ghcr.io/${owner}/dnsmgr:sha-${GITHUB_SHA::7}-${{ matrix.arch }}"
           if [ -n "$DOCKERHUB_USERNAME" ]; then
-            tags="${tags},${DOCKERHUB_USERNAME}/dnsmgr:latest"
+            tags="${tags},${DOCKERHUB_USERNAME}/dnsmgr:sha-${GITHUB_SHA::7}-${{ matrix.arch }}"
             echo "dockerhub=true" >> "$GITHUB_OUTPUT"
           fi
           echo "tags=${tags}" >> "$GITHUB_OUTPUT"
           echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -72,19 +78,28 @@ jobs:
         with:
           context: .
           file: .github/docker/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/${{ matrix.arch }}
           load: true
           push: false
           provenance: false
           sbom: false
           tags: dnsmgr-smoke:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
+            org.opencontainers.image.title=dnsmgr
+            org.opencontainers.image.description=彩虹聚合DNS管理系统（含开放API）
+          cache-from: |
+            type=gha,scope=dnsmgr-${{ matrix.arch }}
+            type=gha
+          cache-to: type=gha,scope=dnsmgr-${{ matrix.arch }},mode=max
 
       - name: Check container startup and installer
         env:
           IMAGE_TAG: dnsmgr-smoke:${{ github.sha }}
         run: |
+          test "$(docker inspect --format '{{.Architecture}}' "$IMAGE_TAG")" = '${{ matrix.arch }}'
           docker run --detach --name dnsmgr-smoke --publish 127.0.0.1:18081:80 "$IMAGE_TAG"
           docker exec dnsmgr-smoke nginx -t
           for attempt in $(seq 1 30); do
@@ -104,21 +119,60 @@ jobs:
           docker logs dnsmgr-smoke 2>&1 || true
           docker rm --force dnsmgr-smoke 2>/dev/null || true
 
-      - name: Build and push
-        uses: docker/build-push-action@v6
+      - name: Push exact tested image
+        env:
+          IMAGE_TAG: dnsmgr-smoke:${{ github.sha }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          IFS=',' read -ra image_tags <<< "$IMAGE_TAGS"
+          for tag in "${image_tags[@]}"; do
+            docker tag "$IMAGE_TAG" "$tag"
+            docker push "$tag"
+          done
+
+  publish:
+    name: Publish verified multi-platform image
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          context: .
-          file: .github/docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          provenance: false
-          sbom: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.created=${{ steps.meta.outputs.created }}
-            org.opencontainers.image.title=dnsmgr
-            org.opencontainers.image.description=彩虹聚合DNS管理系统（含开放API）
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check optional Docker Hub destination
+        id: hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Log in to Docker Hub
+        if: steps.hub.outputs.enabled == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish manifests only after both native startup checks pass
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          image="ghcr.io/${owner}/dnsmgr"
+          version="sha-${GITHUB_SHA::7}"
+          docker buildx imagetools create --tag "${image}:${version}" --tag "${image}:latest" \
+            "${image}:${version}-amd64" "${image}:${version}-arm64"
+          docker buildx imagetools inspect "${image}:${version}"
+          if [ -n "$DOCKERHUB_USERNAME" ]; then
+            image="${DOCKERHUB_USERNAME}/dnsmgr"
+            docker buildx imagetools create --tag "${image}:${version}" --tag "${image}:latest" \
+              "${image}:${version}-amd64" "${image}:${version}-arm64"
+            docker buildx imagetools inspect "${image}:${version}"
+          fi
