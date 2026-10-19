@@ -654,7 +654,9 @@ class Cloudflare extends BaseController
             $context['service']->updateTunnelConfig($context['accountId'], $tunnelId, $config);
 
             $zone = $this->findBestMatchingDomain(intval($context['account']['id']), $hostname);
-            if (!empty($zone['thirdid'])) {
+            $stillUsed = array_filter($nextIngress, fn($rule) => is_array($rule)
+                && $this->normalizeHostname($rule['hostname'] ?? '') === $this->normalizeHostname($hostname));
+            if (!empty($zone['thirdid']) && !$stillUsed) {
                 try {
                     $context['service']->deleteTunnelCnameRecordIfMatch($zone['thirdid'], $hostname, $tunnelId);
                 } catch (Exception $e) {

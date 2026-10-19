@@ -23,27 +23,18 @@ class local implements DeployInterface
             if (!is_dir($dir)) throw new Exception($dir . ' 目录不存在');
             if (!is_writable($dir)) throw new Exception($dir . ' 目录不可写');
 
-            if (file_put_contents($config['pem_cert_file'], $fullchain)) {
-                $this->log('证书已保存到：' . $config['pem_cert_file']);
-            } else {
-                throw new Exception('证书保存到' . $config['pem_cert_file'] . '失败，请检查目录权限');
-            }
-            if (file_put_contents($config['pem_key_file'], $privatekey)) {
-                $this->log('私钥已保存到：' . $config['pem_key_file']);
-            } else {
-                throw new Exception('私钥保存到' . $config['pem_key_file'] . '失败，请检查目录权限');
-            }
+            \app\lib\SecureFiles::write($config['pem_cert_file'], $fullchain, 0644);
+            $this->log('证书已保存到：' . $config['pem_cert_file']);
+            \app\lib\SecureFiles::write($config['pem_key_file'], $privatekey);
+            $this->log('私钥已保存到：' . $config['pem_key_file']);
         } elseif ($config['format'] == 'pfx') {
             $dir = dirname($config['pfx_file']);
             if (!is_dir($dir)) throw new Exception($dir . ' 目录不存在');
             if (!is_writable($dir)) throw new Exception($dir . ' 目录不可写');
 
             $pfx = \app\lib\CertHelper::getPfx($fullchain, $privatekey, $config['pfx_pass'] ? $config['pfx_pass'] : null);
-            if (file_put_contents($config['pfx_file'], $pfx)) {
-                $this->log('PFX证书已保存到：' . $config['pfx_file']);
-            } else {
-                throw new Exception('PFX证书保存到' . $config['pfx_file'] . '失败，请检查目录权限');
-            }
+            \app\lib\SecureFiles::write($config['pfx_file'], $pfx);
+            $this->log('PFX证书已保存到：' . $config['pfx_file']);
         }
         if (!empty($config['cmd'])) {
             $cmds = explode("\n", $config['cmd']);

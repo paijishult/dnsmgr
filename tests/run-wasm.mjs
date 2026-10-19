@@ -18,7 +18,7 @@ function copy(from, to) {
     if (['.git', 'vendor', 'node_modules', 'runtime'].includes(ent.name)) continue;
     const source = path.join(from, ent.name), target = to + '/' + ent.name;
     if (ent.isDirectory()) copy(source, target);
-    else if (/\.(php|html|json|css|js)$/.test(ent.name)) {
+    else if (/\.(php|html|json|css|js|sql)$/.test(ent.name)) {
       php.writeFile(target, fs.readFileSync(source));
       if (ent.name.endsWith('.php')) phpFiles.push(target);
     }

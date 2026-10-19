@@ -115,9 +115,6 @@
           <li class="{:checkIfActive('domain,record,record_log,record_batch_add,record_import,domain_add,weight,record_batch_add2,record_batch_edit2,expire_notice,smartparse')}">
             <a href="/domain"><i class="fa fa-list-ul fa-fw"></i> <span>域名管理</span></a>
           </li>
-          {if request()->user['type'] == 'user' && checkPermission(1)}<li class="{if request()->controller() == 'Batch'}active{/if}">
-            <a href="/batch"><i class="fa fa-tasks fa-fw"></i> <span>后台批量任务</span></a>
-          </li>{/if}
           {if request()->user['level'] eq 2}
           <li class="{:checkIfActive('account,account_add')}">
             <a href="/account"><i class="fa fa-lock fa-fw"></i> <span>域名账户</span></a>
@@ -207,6 +204,9 @@
           </li>
           {if request()->user['level'] eq 2}<li class="{if request()->controller() == 'Audit'}active{/if}">
             <a href="/audit"><i class="fa fa-shield fa-fw"></i> <span>审计日志</span></a>
+          </li>{/if}
+          {if request()->user['type'] == 'user' && checkPermission(1)}<li class="{if request()->controller() == 'Batch'}active{/if}">
+            <a href="/batch"><i class="fa fa-tasks fa-fw"></i> <span>批量任务</span></a>
           </li>{/if}
         </ul>
       </section>

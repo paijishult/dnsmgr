@@ -14,7 +14,7 @@ $first = new TaskMysqlConnection($dsn); $second = new TaskMysqlConnection($dsn);
 $third = new TaskMysqlConnection($dsn);
 $schema = new TaskMysqlConnection($dsn);
 $prefix = 'dnsmgr_ci_' . bin2hex(random_bytes(6)) . '_';
-$tables = [$prefix . 'dns_snapshot', $prefix . 'batch_task'];
+$tables = [$prefix . 'dns_snapshot', $prefix . 'batch_task', $prefix . 'cert_dns_lease'];
 $checks = 0;
 function mysqlCheck($condition, $message) { global $checks; if (!$condition) throw new RuntimeException($message); $checks++; }
 $resource = 'integration:' . bin2hex(random_bytes(8));
@@ -58,6 +58,7 @@ try {
     };
     $applySchema();
     $expected = [
+        $tables[2] => ['oid','claim','did','aid','thirdid','domain','rr','type','value','managed'],
         $tables[0] => ['id','did','uid','domain','aid','thirdid','label','record_count','records','checksum','addtime'],
         $tables[1] => ['id','uid','kid','did','actor','name','identity','plan','results','total','completed','status','cancel_requested','attempts','error','snapshot_id','addtime','updatetime','expiretime'],
     ];

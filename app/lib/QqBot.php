@@ -62,7 +62,8 @@ class QqBot
     public function verifySignature(string $timestamp, string $signatureHex, string $body): bool
     {
         $signatureHex = strtolower(trim($signatureHex));
-        if ($timestamp === '' || $signatureHex === '') {
+        if (!preg_match('/\A[0-9]{1,11}\z/D', $timestamp) || abs(time() - (int)$timestamp) > 300
+            || !preg_match('/\A[0-9a-f]{128}\z/D', $signatureHex)) {
             return false;
         }
         $signature = @hex2bin($signatureHex);

@@ -182,6 +182,11 @@ class User extends BaseController
             $select->where('domain', $this->request->user['name']);
         } elseif ($this->request->user['level'] == 1) {
             $select->where('uid', $this->request->user['id']);
+            // Legacy domain-SSO rows used a domain ID as uid. Do not expose
+            // their DNS payloads when that number collides with a user ID.
+            $select->where(function ($query) {
+                $query->whereNull('domain')->whereOr('domain', '')->whereOr('domain', 'in', $this->request->user['permission'] ?: ['-']);
+            });
         } elseif (!isNullOrEmpty($uid)) {
             $select->where('uid', $uid);
         }

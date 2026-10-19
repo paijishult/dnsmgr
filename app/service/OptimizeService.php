@@ -165,7 +165,7 @@ class OptimizeService
         echo '开始执行IP优选任务，共获取到'.count($list).'个待执行任务'."\n";
         foreach ($list as $row) {
             try {
-                $result = $this->execute_one($row);
+                $result = $this->execute_one($row, false);
                 Db::name('optimizeip')->where('id', $row['id'])->update(['status' => 1, 'errmsg' => null, 'updatetime' => date('Y-m-d H:i:s')]);
                 echo '优选任务'.$row['id'].'执行成功：'.$result."\n";
             } catch (Exception $e) {
@@ -177,134 +177,93 @@ class OptimizeService
         return true;
     }
 
-    //执行单个优选任务
-    public function execute_one($row)
+    // Manual runs and cron share one non-stealable task lock and the DNS change guard.
+    public function execute_one($row, bool $manual = true)
     {
-        $this->add_num = 0;
-        $this->change_num = 0;
-        $this->del_num = 0;
-        $ip_types = explode(',', $row['ip_type']);
-        foreach ($ip_types as $ip_type) {
-            if (empty($ip_type)) {
-                continue;
-            }
-
-            $drow = Db::name('domain')->alias('A')->join('account B', 'A.aid = B.id')->where('A.id', $row['did'])->field('A.*,B.type')->find();
-            if (!$drow) {
-                throw new Exception('域名不存在（ID：'.$row['did'].'）');
-            }
-            if (!isset(DnsHelper::$line_name[$drow['type']])) {
-                throw new Exception('不支持的DNS服务商');
-            }
-
-            $info = $this->get_ip_address2($row['cdn_type'], $ip_type);
-
-            $dns = DnsHelper::getModel($drow['aid'], $drow['name'], $drow['thirdid']);
-            if (!$dns) {
-                throw new Exception('DNS模块不存在');
-            }
-            $domainRecords = $dns->getSubDomainRecords($row['rr'], 1, 100);
-            if (!$domainRecords) {
-                throw new Exception('获取记录列表失败，'.$dns->getError());
-            }
-
-            if ($row['type'] == 1 && isset($info['DEF']) && !empty($info['DEF'])) {
-                $row['type'] = 0;
-            }
-
-            foreach ($info as $line => $iplist) {
-                if (empty($iplist)) {
-                    continue;
+        $db = TaskLockService::connection();
+        $lock = new TaskLockService($db, 'optimize:' . (int)$row['id']);
+        try {
+            $lock->acquire();
+            $row = $db->name('optimizeip')->where('id', $row['id'])->find();
+            if (!$row || (!$manual && !$row['active'])) throw new Exception('优选任务已删除或停用');
+            $this->add_num = $this->change_num = $this->del_num = 0;
+            $domain = $db->name('domain')->alias('A')->join('account B', 'A.aid = B.id')->where('A.id', $row['did'])->field('A.*,B.type')->find();
+            if (!$domain || !isset(DnsHelper::$line_name[$domain['type']])) throw new Exception('域名不存在或DNS服务商不支持优选线路');
+            $authorize = static function () use ($db, $row, $domain, $manual) {
+                $current = $db->name('optimizeip')->where('id', $row['id'])->find();
+                $zone = $db->name('domain')->where('id', $domain['id'])->find();
+                if (!$current || (!$manual && !$current['active']) || (string)$current['did'] !== (string)$row['did']) throw new Exception('优选任务已删除、停用或修改');
+                foreach (['aid','name','thirdid'] as $key) if (!$zone || (string)$zone[$key] !== (string)$domain[$key]) throw new Exception('域名已删除或重新绑定');
+            };
+            foreach (array_filter(explode(',', $row['ip_type'])) as $ipType) {
+                if (!in_array($ipType, ['v4','v6'], true)) throw new Exception('优选IP类型无效');
+                $info = $this->get_ip_address2($row['cdn_type'], $ipType);
+                $fallback = (int)$row['type'] === 1 && empty($info['DEF']);
+                foreach ($info as $line => $ips) {
+                    if (!$ips) continue;
+                    if ($fallback && $line === 'CT') $line = 'DEF';
+                    if (!isset(DnsHelper::$line_name[$domain['type']][$line])) continue;
+                    $desired = [];
+                    foreach ($ips as $item) {
+                        $ip = $item['ip'] ?? null;
+                        $flag = $ipType === 'v6' ? FILTER_FLAG_IPV6 : FILTER_FLAG_IPV4;
+                        if (!is_string($ip) || !filter_var($ip, FILTER_VALIDATE_IP, $flag | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) throw new Exception('优选接口返回无效或非公网IP，停止写入');
+                        $desired[] = inet_ntop(inet_pton($ip));
+                    }
+                    $count = (int)$row['recordnum'];
+                    if ($count < 1 || $count > 50) throw new Exception('优选记录数量应在1至50之间');
+                    $desired = array_slice(array_values(array_unique($desired)), 0, $count);
+                    if (!$desired) throw new Exception('优选接口没有可用IP');
+                    if ($domain['type'] === 'huawei') { sort($desired); $desired = [implode(',', $desired)]; }
+                    $authorize();
+                    $model = DnsHelper::getModel($domain['aid'], $domain['name'], $domain['thirdid']);
+                    if (!$model) throw new Exception('DNS模块不存在');
+                    $dns = new \app\lib\GuardedDns($model, $domain, $db);
+                    try {
+                        $this->process_dns_line($dns, $row, $dns->records(), $desired, DnsHelper::$line_name[$domain['type']][$line], $ipType, $authorize);
+                    } finally { unset($dns); }
                 }
-                $record_num = $row['recordnum'];
-                $get_ips = array_column($iplist, 'ip');
-                if ($drow['type'] == 'huawei') {
-                    sort($get_ips);
-                    $get_ips = array_slice($get_ips, 0, $row['recordnum']);
-                    $get_ips = [implode(',', $get_ips)];
-                    $record_num = 1;
-                }
-                if ($row['type'] == 1 && $line == 'CT') {
-                    $line = 'DEF';
-                }
-                if (!isset(DnsHelper::$line_name[$drow['type']][$line])) {
-                    continue;
-                }
-                $line_name = DnsHelper::$line_name[$drow['type']][$line];
-                $this->process_dns_line($dns, $row, $domainRecords['list'], $record_num, $get_ips, $line_name, $ip_type);
             }
-        }
-
-        return '成功添加'.$this->add_num.'条记录，修改'.$this->change_num.'条记录，删除'.$this->del_num.'条记录';
+            return '成功添加'.$this->add_num.'条记录，修改'.$this->change_num.'条记录，删除'.$this->del_num.'条记录';
+        } finally { try { $lock->release(); } finally { $db->close(); } }
     }
 
-    //处理单个线路的解析记录
-    private function process_dns_line($dns, $row, $record_list, $record_num, $get_ips, $line_name, $ip_type)
+    private function process_dns_line($dns, $row, $records, array $desired, $line, $ipType, callable $authorize): void
     {
-        $records = array_filter($record_list, function ($v) use ($line_name) {
-            return $v['Line'] == $line_name;
-        });
-
-        //删除CNAME记录
-        $cname_records = array_filter($records, function ($v) {
-            return $v['Type'] == 'CNAME';
-        });
-        if (!empty($cname_records)) {
-            foreach ($cname_records as $record) {
-                $dns->deleteDomainRecord($record['RecordId']);
+        $records = array_filter($records, fn($r) => strcasecmp($r['Name'], $row['rr']) === 0 && (string)$r['Line'] === (string)$line);
+        $type = $ipType === 'v6' ? 'AAAA' : 'A';
+        $excess = [];
+        foreach ($records as $record) {
+            if ($record['Type'] === 'CNAME') {
+                $authorize();
+                if (!$dns->deleteDomainRecord($record['RecordId'])) throw new Exception('删除冲突CNAME失败：'.$dns->getError());
+                $this->del_num++;
+            } elseif ($record['Type'] === $type) {
+                $values = (array)$record['Value'];
+                foreach ($values as &$value) { $binary = @inet_pton($value); if ($binary !== false) $value = inet_ntop($binary); }
+                unset($value);
+                if (is_array($record['Value'])) sort($values);
+                $value = implode(',', $values);
+                $index = array_search($value, $desired, true);
+                if ($index !== false) unset($desired[$index]);
+                else $excess[] = $record;
             }
         }
-
-        //处理A/AAAA记录
-        $ip_records = array_filter($records, function ($v) use ($ip_type) {
-            return $v['Type'] == ($ip_type == 'v6' ? 'AAAA' : 'A');
-        });
-
-        if (!empty($ip_records) && is_array($ip_records[array_key_first($ip_records)]['Value'])) { //处理华为云记录
-            foreach ($ip_records as &$ip_record) {
-                sort($ip_record['Value']);
-                $ip_record['Value'] = implode(',', $ip_record['Value']);
+        foreach ($excess as $record) {
+            $authorize();
+            if ($desired) {
+                $ip = array_shift($desired);
+                if (!$dns->updateDomainRecord($record['RecordId'], $row['rr'], $type, $ip, $line, $row['ttl'])) throw new Exception('修改解析失败：'.$dns->getError());
+                $this->change_num++;
+            } else {
+                if (!$dns->deleteDomainRecord($record['RecordId'])) throw new Exception('删除解析失败：'.$dns->getError());
+                $this->del_num++;
             }
         }
-
-        $exist_ips = array_column($ip_records, 'Value');
-        $add_ips = array_diff($get_ips, $exist_ips);
-        $del_ips = array_diff($exist_ips, $get_ips);
-        $correct_ips = array_diff($exist_ips, $del_ips);
-        $correct_count = count($correct_ips);
-        if (!empty($del_ips)) {
-            foreach ($ip_records as $record) {
-                if (in_array($record['Value'], $del_ips)) {
-                    $add_ip = array_pop($add_ips);
-                    if ($add_ip) {
-                        $res = $dns->updateDomainRecord($record['RecordId'], $row['rr'], $ip_type == 'v6' ? 'AAAA' : 'A', $add_ip, $line_name, $row['ttl']);
-                        if (!$res) {
-                            throw new Exception('修改解析失败，'.$dns->getError());
-                        }
-                        $this->change_num++;
-                        $correct_count++;
-                    } else {
-                        $res = $dns->deleteDomainRecord($record['RecordId']);
-                        if (!$res) {
-                            throw new Exception('删除解析失败，'.$dns->getError());
-                        }
-                        $this->del_num++;
-                    }
-                }
-            }
-        }
-        if ($correct_count < $record_num && !empty($add_ips)) {
-            foreach ($add_ips as $add_ip) {
-                $res = $dns->addDomainRecord($row['rr'], $ip_type == 'v6' ? 'AAAA' : 'A', $add_ip, $line_name, $row['ttl']);
-                if (!$res) {
-                    throw new Exception('添加解析失败，'.$dns->getError());
-                }
-                $this->add_num++;
-                $correct_count++;
-                if ($correct_count >= $record_num) {
-                    break;
-                }
-            }
+        foreach ($desired as $ip) {
+            $authorize();
+            if (!$dns->addDomainRecord($row['rr'], $type, $ip, $line, $row['ttl'])) throw new Exception('添加解析失败：'.$dns->getError());
+            $this->add_num++;
         }
     }
 }

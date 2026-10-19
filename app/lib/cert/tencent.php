@@ -112,7 +112,6 @@ class tencent implements CertInterface
         ];
         $this->request('ModifyCertificatesExpiringNotificationSwitch', $param);
 
-        if (!is_dir(app()->getRuntimePath() . 'cert')) mkdir(app()->getRuntimePath() . 'cert');
         $param = [
             'CertificateId' => $order['CertificateId'],
             'ServiceType' => 'nginx',
@@ -121,35 +120,9 @@ class tencent implements CertInterface
         $file_data = http_request($data['DownloadCertificateUrl'], null, null, null, null, $this->proxy);
         $file_data = $file_data['body'] ?? null;
         if (empty($file_data)) throw new Exception('下载证书失败');
-        $file_path = app()->getRuntimePath() . 'cert/' . $data['DownloadFilename'];
-        $file_name = substr($data['DownloadFilename'], 0, -4);
-        file_put_contents($file_path, $file_data);
-
-        $zip = new \ZipArchive;
-        if ($zip->open($file_path) === true) {
-            $zip->extractTo(app()->getRuntimePath() . 'cert/');
-            $zip->close();
-        } else {
-            throw new Exception('解压证书失败');
-        }
-        $cert_dir = app()->getRuntimePath() . 'cert/' . $file_name;
-
-        $items = scandir($cert_dir);
-        if ($items === false) throw new Exception('解压后的证书文件夹不存在');
-        $private_key = null;
-        $fullchain = null;
-        foreach ($items as $item) {
-            if (substr($item, -4) == '.key') {
-                $private_key = file_get_contents($cert_dir . '/' . $item);
-            } elseif (substr($item, -4) == '.crt') {
-                $fullchain = file_get_contents($cert_dir . '/' . $item);
-            }
-        }
-        if (empty($private_key) || empty($fullchain)) throw new Exception('解压后的证书文件夹内未找到证书文件');
-
-        clearDirectory($cert_dir);
-        rmdir($cert_dir);
-        unlink($file_path);
+        $files = \app\lib\CertificateArchive::read($file_data, $domainList);
+        $private_key = $files['private_key'];
+        $fullchain = $files['fullchain'];
 
         $certInfo = openssl_x509_parse($fullchain, true);
         if (!$certInfo) throw new Exception('证书解析失败');

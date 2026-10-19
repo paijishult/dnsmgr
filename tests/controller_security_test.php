@@ -12,6 +12,7 @@ namespace app {
     class BaseController { protected $request;public function __construct(){$this->request=\request();}protected function alert($type,$msg){return \json(['code'=>-1,'msg'=>$msg]);} }
 }
 namespace {
+    require __DIR__.'/../app/lib/SensitiveLog.php';
     require __DIR__.'/../app/lib/RecordGuard.php';
     require __DIR__.'/../app/lib/ApiKeyHelper.php';
     require __DIR__.'/../app/lib/DeployHelper.php';

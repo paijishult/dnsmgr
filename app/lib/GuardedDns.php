@@ -26,6 +26,8 @@ class GuardedDns
 
     public function getError() { return $this->error ?? $this->dns->getError(); }
 
+    public function records(): array { return $this->initial; }
+
     public function owned(array $ids): array
     {
         if (!$ids || count($ids) > RecordGuard::MAX_BATCH) throw new RuntimeException('每批应包含1至500条记录');

@@ -141,8 +141,12 @@ class huawei implements DnsInterface
     public function addDomainRecord($Name, $Type, $Value, $Line = '0', $TTL = 600, $MX = 1, $Weight = null, $Remark = null)
     {
         $Name = $this->getHost($Name);
-        if ($Type == 'TXT' && substr($Value, 0, 1) != '"') $Value = '"' . $Value . '"';
-        $records = array_reverse(explode(',', $Value));
+        if (is_array($Value)) {
+            $records = array_values($Value);
+        } else {
+            if ($Type == 'TXT' && substr($Value, 0, 1) != '"') $Value = '"' . $Value . '"';
+            $records = array_reverse(explode(',', $Value));
+        }
         $params = ['name' => $Name, 'type' => $this->convertType($Type), 'records' => $records, 'line' => $Line, 'ttl' => intval($TTL), 'description' => $Remark];
         if ($Weight > 0) $params['weight'] = intval($Weight);
         $data = $this->send_request('POST', '/v2.1/zones/'.$this->domainid.'/recordsets', null, $params);
@@ -153,8 +157,12 @@ class huawei implements DnsInterface
     public function updateDomainRecord($RecordId, $Name, $Type, $Value, $Line = '0', $TTL = 600, $MX = 1, $Weight = null, $Remark = null)
     {
         $Name = $this->getHost($Name);
-        if ($Type == 'TXT' && substr($Value, 0, 1) != '"') $Value = '"' . $Value . '"';
-        $records = array_reverse(explode(',', $Value));
+        if (is_array($Value)) {
+            $records = array_values($Value);
+        } else {
+            if ($Type == 'TXT' && substr($Value, 0, 1) != '"') $Value = '"' . $Value . '"';
+            $records = array_reverse(explode(',', $Value));
+        }
         $params = ['name' => $Name, 'type' => $this->convertType($Type), 'records' => $records, 'line' => $Line, 'ttl' => intval($TTL), 'description' => $Remark];
         if ($Weight > 0) $params['weight'] = intval($Weight);
         $data = $this->send_request('PUT', '/v2.1/zones/'.$this->domainid.'/recordsets/'.$RecordId, null, $params);

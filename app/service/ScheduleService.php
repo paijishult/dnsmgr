@@ -62,6 +62,7 @@ class ScheduleService
     {
         $drow = $this->db()->name('domain')->alias('A')->join('account B', 'A.aid = B.id')->where('A.id', $row['did'])->field('A.*,B.type,B.config')->find();
         if (!$drow) throw new \RuntimeException('域名不存在');
+        \app\lib\AutomaticDnsTarget::validate($row, $drow);
         $domain = $row['rr'] . '.' . $drow['name'];
         $dns = DnsHelper::getModel2($drow);
         if (!$dns) throw new \RuntimeException('DNS模块不存在');
@@ -84,6 +85,10 @@ class ScheduleService
             $error = (string)$dns->getError();
             $this->add_log($domain, $action . '失败', $error);
             throw new \RuntimeException($error ?: '云端DNS操作失败');
+        }
+        if ((int)$row['switchtype'] === 0) {
+            $newId = \app\lib\AutomaticDnsTarget::afterUpdate($dns, $drow, $row['rr'], $row['value'], $recordinfo['Line']);
+            if ($newId !== null) $this->db()->name('sctask')->where('id', $row['id'])->update(['recordid'=>$newId]);
         }
         $this->add_log($domain, $action, '定时' . $action . '成功');
     }

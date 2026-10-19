@@ -443,6 +443,7 @@ class CertOrderService
         try {
             if ($this->db->name('cert_deploy')->where('oid', $this->order['id'])->count()) throw new Exception('该证书关联了自动部署任务，无法删除');
             $this->cancel();
+            $this->delDns();
             $this->db->startTrans();
             try {
                 $this->db->name('cert_domain')->where('oid', $this->order['id'])->delete();
@@ -462,7 +463,7 @@ class CertOrderService
         try {
             CertDnsUtils::addDns($this->dnsList, function ($txt) {
                 $this->saveLog($txt);
-            }, !empty($this->cnameDomainList));
+            }, !empty($this->cnameDomainList), (int)$this->order['id']);
         } catch (\Throwable $e) {
             $this->saveResult(-3, $e->getMessage());
             throw $e;
@@ -478,7 +479,7 @@ class CertOrderService
         try {
             CertDnsUtils::delDns($this->dnsList, function ($txt) {
                 $this->saveLog($txt);
-            }, true);
+            }, true, (int)$this->order['id']);
         } catch (\Throwable $e) {
             $this->saveLog('[Error] ' . $e->getMessage());
         }
@@ -504,6 +505,7 @@ class CertOrderService
 
     private function saveLog($txt)
     {
+        $txt = \app\lib\SensitiveLog::filter((string)$txt);
         if (empty($this->order['processid'])) return;
         if (!is_dir(app()->getRuntimePath() . 'log')) mkdir(app()->getRuntimePath() . 'log', 0750, true);
         $file_name = app()->getRuntimePath().'log/'.$this->order['processid'].'.log';

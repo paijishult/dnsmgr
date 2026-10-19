@@ -8,10 +8,11 @@ use think\facade\Db;
 /** Idempotent additive migration. Never mark a partially-created schema ready. */
 class FeatureMigrationService
 {
-    public const VERSION = '20261019.1';
+    public const VERSION = '20261020.1';
 
     public static function ensure(): void
     {
+        LegacyMigrationService::ensure();
         if (config_get('native_features') === self::VERSION) return;
         $connection = TaskLockService::connection();
         $lock = new TaskLockService($connection, 'native-features-migration');
@@ -27,6 +28,7 @@ class FeatureMigrationService
             }
             $connection->name('dns_snapshot')->field('id,did,uid,domain,aid,thirdid,label,record_count,records,checksum,addtime')->where('id', 0)->select();
             $connection->name('batch_task')->field('id,uid,kid,did,actor,name,identity,plan,results,total,completed,status,cancel_requested,attempts,error,snapshot_id,addtime,updatetime,expiretime')->where('id', 0)->select();
+            $connection->name('cert_dns_lease')->field('oid,claim,did,aid,thirdid,domain,rr,type,value,managed')->where('oid', 0)->select();
             $connection->name('config')->replace()->insert(['key' => 'native_features', 'value' => self::VERSION]);
             Config::set(['native_features' => self::VERSION], 'sys');
             Cache::delete('configs');

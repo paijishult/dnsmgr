@@ -21,6 +21,8 @@ namespace app\utils {
     class CertDnsUtils { public static function verifyDns(...$args) { return true; } }
 }
 namespace {
+    require_once __DIR__.'/../app/lib/AutomaticDnsTarget.php';
+    require_once __DIR__.'/../app/lib/SensitiveLog.php';
     require_once __DIR__.'/../app/service/TaskLockService.php';
     require_once __DIR__.'/../app/service/TaskRunner.php';
     require_once __DIR__.'/../app/service/ScheduleService.php';

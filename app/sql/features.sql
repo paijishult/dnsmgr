@@ -14,6 +14,21 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_dns_snapshot` (
   KEY `did_id` (`did`,`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS `dnsmgr_cert_dns_lease` (
+  `oid` int unsigned NOT NULL,
+  `claim` char(64) NOT NULL,
+  `did` int unsigned NOT NULL,
+  `aid` int unsigned NOT NULL,
+  `thirdid` varchar(255) NOT NULL,
+  `domain` varchar(253) NOT NULL,
+  `rr` varchar(253) NOT NULL,
+  `type` varchar(16) NOT NULL,
+  `value` text NOT NULL,
+  `managed` tinyint unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`oid`,`claim`),
+  KEY `claim` (`claim`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS `dnsmgr_batch_task` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `uid` int unsigned NOT NULL,

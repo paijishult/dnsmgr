@@ -48,11 +48,11 @@ class fnos implements DeployInterface
             if ($flag) {
                 $certPath = $row['certificate'];
                 $keyPath = $row['privateKey'];
-                $certDir = dirname($certPath);
-                $this->exec($connection, '上传证书文件', "sudo tee ".$certPath." > /dev/null <<'EOF'\n".$fullchain."\nEOF");
-                $this->exec($connection, '上传私钥文件', "sudo tee ".$keyPath." > /dev/null <<'EOF'\n".$privatekey."\nEOF");
-                $this->exec($connection, '刷新目录权限', 'sudo chmod 0755 "'.$certDir.'" -R');
-                $this->exec($connection, '更新数据表', 'cd /tmp && sudo -u postgres psql -d trim_connect -c "UPDATE cert SET  valid_to='.$certInfo['validTo_time_t'].'000,valid_from='.$certInfo['validFrom_time_t'].'000,issued_by=\''.$certInfo['issuer']['CN'].'\',updated_time='.getMillisecond().' WHERE private_key=\''.$keyPath.'\'"');
+                $this->writeRootFile($connection, $certPath, $fullchain, 0644);
+                $this->writeRootFile($connection, $keyPath, $privatekey, 0600);
+                $literal = static fn($value) => "E'" . str_replace(["\\", "'"], ["\\\\", "''"], (string)$value) . "'";
+                $sql = 'SET standard_conforming_strings=on; UPDATE cert SET valid_to=' . (int)$certInfo['validTo_time_t'] . '000,valid_from=' . (int)$certInfo['validFrom_time_t'] . '000,issued_by=' . $literal($certInfo['issuer']['CN'] ?? '') . ',updated_time=' . (int)getMillisecond() . ' WHERE private_key=' . $literal($keyPath);
+                $this->exec($connection, '更新数据表', 'cd /tmp && sudo -u postgres psql -v ON_ERROR_STOP=1 -d trim_connect -c ' . escapeshellarg($sql));
                 $this->log('证书 '.$row['domain'].' 更新成功');
                 $success++;
             }
@@ -66,20 +66,46 @@ class fnos implements DeployInterface
         }
     }
 
+    private function writeRootFile($connection, string $path, string $contents, int $mode): void
+    {
+        if (!str_starts_with($path, '/') || preg_match('/[\x00\r\n]/', $path)) throw new Exception('飞牛证书路径无效');
+        $sftp = ssh2_sftp($connection);
+        if (!$sftp) throw new Exception('无法建立SFTP连接');
+        $directory = '/tmp/dnsmgr-' . bin2hex(random_bytes(16));
+        if (!ssh2_sftp_mkdir($sftp, $directory, 0700)) throw new Exception('无法创建私有SFTP目录');
+        $source = $directory . '/upload';
+        $target = $path . '.dnsmgr-' . bin2hex(random_bytes(16));
+        try {
+            \app\lib\SshSecurity::upload($sftp, $source, $contents);
+            $this->exec($connection, '准备证书文件', 'sudo install -m ' . decoct($mode) . ' -- ' . escapeshellarg($source) . ' ' . escapeshellarg($target));
+            $this->exec($connection, '替换证书文件', 'sudo mv -f -- ' . escapeshellarg($target) . ' ' . escapeshellarg($path));
+        } finally {
+            try { $this->exec($connection, '清理临时文件', 'sudo rm -f -- ' . escapeshellarg($target)); }
+            catch (\Throwable $e) { $this->log('临时文件清理失败，请检查远端权限'); }
+            finally { @ssh2_sftp_unlink($sftp, $source); @ssh2_sftp_rmdir($sftp, $directory); }
+        }
+    }
+
     private function exec($connection, $name, $cmd)
     {
-        $stream = ssh2_exec($connection, $cmd);
-        $errorStream = ssh2_fetch_stream($stream, SSH2_STREAM_STDERR);
-        if (!$stream || !$errorStream) {
+        $marker = '__DNSMGR_EXIT_' . bin2hex(random_bytes(12)) . '__';
+        $stream = ssh2_exec($connection, '(' . $cmd . '); printf ' . escapeshellarg("\n" . $marker . '%d') . ' "$?"');
+        if (!$stream) {
             throw new Exception($name.'执行命令失败');
         }
+        $errorStream = ssh2_fetch_stream($stream, SSH2_STREAM_STDERR);
+        if (!$errorStream) { fclose($stream); throw new Exception($name.'无法读取命令结果'); }
         stream_set_blocking($stream, true);
         stream_set_blocking($errorStream, true);
+        stream_set_timeout($stream, 30);
+        stream_set_timeout($errorStream, 30);
         $output = stream_get_contents($stream);
         $errorOutput = stream_get_contents($errorStream);
         fclose($stream);
         fclose($errorStream);
-        if (trim($errorOutput)) {
+        if (!preg_match('/\n' . preg_quote($marker, '/') . '([0-9]+)\z/D', $output, $match)) throw new Exception($name.'未取得命令退出状态');
+        $output = substr($output, 0, -strlen($match[0]));
+        if ((int)$match[1] !== 0) {
             if (strpos($errorOutput, 'a password is required') !== false) {
                 throw new Exception('权限不足，请先配置 sudo 免密');
             }
@@ -108,7 +134,7 @@ class fnos implements DeployInterface
             throw new Exception('SSH端口不合法');
         }
 
-        $connection = ssh2_connect($this->config['host'], intval($this->config['port']));
+        $connection = \app\lib\SshSecurity::connect($this->config);
         if (!$connection) {
             throw new Exception('SSH连接失败');
         }

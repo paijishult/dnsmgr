@@ -114,7 +114,6 @@ class ucloud implements CertInterface
 
     public function finalizeOrder($domainList, $order, $keytype, $keysize)
     {
-        if (!is_dir(app()->getRuntimePath() . 'cert')) mkdir(app()->getRuntimePath() . 'cert');
         $param = [
             'CertificateID' => $order['CertificateID'],
         ];
@@ -122,32 +121,9 @@ class ucloud implements CertInterface
 
         $data = $this->request('DownloadCertificate', $param);
         $file_data = get_curl($data['CertificateUrl']);
-        $file_path = app()->getRuntimePath() . 'cert/USSL_' . $order['CertificateID'] . '.zip';
-        file_put_contents($file_path, $file_data);
-
-        $zip = new \ZipArchive;
-        if ($zip->open($file_path) === true) {
-            $zip->extractTo(app()->getRuntimePath() . 'cert/');
-            $zip->close();
-        } else {
-            throw new Exception('解压证书失败');
-        }
-        $cert_dir = app()->getRuntimePath() . 'cert/Nginx';
-
-        $items = scandir($cert_dir);
-        if ($items === false) throw new Exception('解压后的证书文件夹不存在');
-        $private_key = null;
-        $fullchain = null;
-        foreach ($items as $item) {
-            if (substr($item, -4) == '.key') {
-                $private_key = file_get_contents($cert_dir . '/' . $item);
-            } elseif (substr($item, -4) == '.pem') {
-                $fullchain = file_get_contents($cert_dir . '/' . $item);
-            }
-        }
-        if (empty($private_key) || empty($fullchain)) throw new Exception('解压后的证书文件夹内未找到证书文件');
-
-        clearDirectory(app()->getRuntimePath() . 'cert');
+        $files = \app\lib\CertificateArchive::read((string)$file_data, $domainList, 'Nginx');
+        $private_key = $files['private_key'];
+        $fullchain = $files['fullchain'];
 
         return ['private_key' => $private_key, 'fullchain' => $fullchain, 'issuer' => $info['CertificateInfo']['CaOrganization'], 'subject' => $info['CertificateInfo']['Name'], 'validFrom' => $info['CertificateInfo']['IssuedDate'], 'validTo' => $info['CertificateInfo']['ExpiredDate']];
     }

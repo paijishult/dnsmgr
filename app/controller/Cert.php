@@ -1351,11 +1351,7 @@ class Cert extends BaseController
      */
     private function filterLog($content)
     {
-        $content = preg_replace('/-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----/s', '[PRIVATE KEY]', (string)$content);
-        if ($this->request->isApi) {
-            $content = preg_replace('/("?(?:password|passwd|secret|token|apikey|api_key|accesskey|access_key|secretkey|secret_key)"?\s*[:=]\s*"?)[^"\s,&}]+/i', '$1******', $content);
-        }
-        return $content;
+        return \app\lib\SensitiveLog::filter((string)$content);
     }
 
     private function apiLog($action, $data)

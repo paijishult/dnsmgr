@@ -261,6 +261,15 @@ namespace {
     batchCheck((new \app\controller\Batch())->details()['code'] === -1, 'One user cannot read another creator details');
     request()->user['id'] = 7; request()->user['level'] = 2; request()->isApi = true; request()->apiKey = ['id' => 12];
     batchCheck((new \app\controller\Batch())->details()['code'] === -1, 'Even admin API keys are isolated by creator identity');
+    foreach (['deleted','rebound'] as $mutation) {
+        setupBatch(2);
+        $GLOBALS['batch_dns']->afterWrite = static function () use ($mutation) {
+            if ($mutation === 'deleted') Db::$tables['domain'] = [];
+            else Db::$tables['domain'][0]['aid'] = 99;
+        };
+        batchRun();
+        batchCheck($GLOBALS['batch_dns']->writes === 1 && batchTask()['completed'] === 1 && batchTask()['status'] === 3, 'Domain deletion or rebinding stops the next queued operation');
+    }
     batchCheck(BatchConnection::$locks === [], 'Every execution path releases database advisory locks');
     // Interleave two enqueue requests exactly between quota read and insert.
     setupBatch(1);

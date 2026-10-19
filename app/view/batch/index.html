@@ -1,15 +1,18 @@
 {extend name="common/layout" /}
-{block name="title"}后台批量任务{/block}
+{block name="title"}批量任务{/block}
 {block name="main"}
 <div class="row"><div class="col-xs-12">
   <div class="panel panel-default panel-intro">
-    <div class="panel-heading"><strong>后台批量任务</strong></div>
+    <div class="panel-heading"><strong>批量任务</strong></div>
     <div class="panel-body">
-      <p>在域名的“变更与快照”中预览记录，再加入后台任务。提交后可关闭页面；列表每 15 秒自动刷新。</p>
+      <p><strong>批量任务的作用：</strong>把已经预览并确认的多条 DNS 变更交给后台执行。提交后可关闭网页，在这里查看进度、逐项结果，或重试、取消任务。列表每 15 秒刷新一次。</p>
+      <p><strong>如何创建：</strong>选择下方域名 → 进入“变更历史与快照” → 预览变更 → 点击“加入后台任务”。后台计划任务运行后才会开始执行；长时间等待时请管理员检查“系统设置 → 计划任务”。</p>
+      <p><strong>快照在哪里：</strong>“保存快照”保存的是当前解析记录的备份，不会创建执行任务。选择下方域名并点击“查看域名快照”，即可在该域名的快照列表中查看记录或预览回滚。</p>
       <p class="text-muted">取消会保留已完成的变更。失败任务可在创建后 24 小时内重试，继续处理尚未完成的记录。</p>
       <form id="newTaskForm" class="form-inline" style="margin-bottom:16px">
         <div class="form-group"><label for="taskDomain">选择域名</label> <select id="taskDomain" class="form-control" style="max-width:100%"><option value="">请选择域名</option>{foreach $domains as $domain}<option value="{$domain.id}">{$domain.name}</option>{/foreach}</select></div>
         <button type="submit" class="btn btn-primary"><i class="fa fa-plus"></i> 预览新任务</button>
+        <button type="button" id="viewDomainSnapshots" class="btn btn-default"><i class="fa fa-camera"></i> 查看域名快照</button>
         <button type="button" id="refreshTasks" class="btn btn-default"><i class="fa fa-refresh"></i> 刷新</button>
       </form>
       <div id="batchMessage" role="status" aria-live="polite"></div>
@@ -92,6 +95,7 @@ $(function () {
     onLoadError: function () { message('加载任务失败，请重试', true); }
   });
   $('#newTaskForm').on('submit', function (event) { event.preventDefault(); var did = validId($('#taskDomain').val()); if (!did) { message('请先选择域名', true); return; } window.location.href = '/record/history/' + did; });
+  $('#viewDomainSnapshots').on('click', function () { var did = validId($('#taskDomain').val()); if (!did) { message('请先选择要查看快照的域名', true); return; } window.location.href = '/record/history/' + did + '#snapshotList'; });
   $('#refreshTasks').on('click', refresh);
   $('#listTable').on('click', '.task-details', function () { var id = validId($(this).data('id')); if (id) details(id); });
   $('#listTable').on('click', '.task-operation', function () {

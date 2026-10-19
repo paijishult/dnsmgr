@@ -181,6 +181,7 @@ Route::group(function () {
     Route::get('/system/proxyset', 'system/proxyset');
     Route::post('/system/set', 'system/set');
     Route::post('/system/mailtest', 'system/mailtest');
+    Route::post('/system/qqbotbind', 'system/qqbotbind');
     Route::post('/system/tgbottest', 'system/tgbottest');
     Route::post('/system/webhooktest', 'system/webhooktest');
     Route::post('/system/customwebhooktest', 'system/customwebhooktest');

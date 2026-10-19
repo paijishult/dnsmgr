@@ -23,13 +23,8 @@ class System extends BaseController
             unset($params['mail_name2']);
         }
         if (array_key_exists('qqbot_appid', $params) || array_key_exists('qqbot_appsecret', $params)) {
-            $oldId = config_get('qqbot_appid', '');
-            $oldSecret = config_get('qqbot_appsecret', '');
-            $newId = array_key_exists('qqbot_appid', $params) ? (string) $params['qqbot_appid'] : $oldId;
-            $newSecret = array_key_exists('qqbot_appsecret', $params) ? (string) $params['qqbot_appsecret'] : $oldSecret;
-            if ($newId !== $oldId || $newSecret !== $oldSecret) {
-                $params['qqbot_openid'] = '';
-            }
+            \app\service\QqBotBindingService::saveSettings($params);
+            return json(['code' => 0, 'msg' => 'succ']);
         }
         foreach ($params as $key => $value) {
             if (empty($key)) {
@@ -53,6 +48,14 @@ class System extends BaseController
         View::assign('qqbot_webhook', rtrim($this->request->root(true), '/') . '/qqbot/webhook');
         View::assign('qqbot_bind', config_get('qqbot_openid') ? 1 : 0);
         return View::fetch();
+    }
+
+    public function qqbotbind()
+    {
+        if (!checkPermission(2)) return $this->alert('error', '无权限');
+        if (!$this->request->isPost()) return json(['code'=>-1,'msg'=>'请使用POST请求'])->code(405);
+        if (!config_get('qqbot_appid') || !config_get('qqbot_appsecret')) return json(['code'=>-1,'msg'=>'请先保存机器人配置']);
+        return json(['code'=>0, 'data'=>\app\service\QqBotBindingService::start()]);
     }
 
     public function proxyset()

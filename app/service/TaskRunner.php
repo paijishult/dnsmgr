@@ -114,6 +114,7 @@ class TaskRunner
             $row['domain'] = $row['rr'] . '.' . $drow['name'];
         }
         $res = false;
+        if ($action > 0) \app\lib\AutomaticDnsTarget::validate($row, $drow);
         if ($action == 1) {
             if ($row['type'] == 2) {
                 $dns = $this->dnsModel($drow);
@@ -163,6 +164,11 @@ class TaskRunner
         if (!$res) {
             // Keep the previous effective state, so the next check retries this switch.
             return false;
+        }
+        if ($row['type'] == 2) {
+            $value = $action == 1 ? $row['backup_value'] : $row['main_value'];
+            $newId = \app\lib\AutomaticDnsTarget::afterUpdate($dns, $drow, $row['rr'], $value, $recordinfo['Line']);
+            if ($newId !== null) $this->db()->name('dmtask')->where('id', $row['id'])->update(['recordid'=>$newId]);
         }
         $nextStatus = $row['type'] == 3 ? ($action == 2 ? 1 : 0) : ($action == 1 ? 1 : 0);
         $this->db()->name('dmtask')->where('id', $row['id'])->update(['status' => $nextStatus, 'errcount' => 0, 'switchtime' => time()]);

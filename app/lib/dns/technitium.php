@@ -13,6 +13,7 @@ class technitium implements DnsInterface
     private $domain;
     private $domainid;
     private $proxy;
+    private array $records = [];
 
     function __construct($config)
     {
@@ -66,6 +67,10 @@ class technitium implements DnsInterface
             $list = [];
             $records = $data['response']['records'];
             foreach ($records as $i => &$row) {
+                $rdata = $row['rData'];
+                $sort = static function (&$data) use (&$sort) { if (is_array($data)) { foreach ($data as &$value) $sort($value); unset($value); if (!array_is_list($data)) ksort($data); } };
+                $sort($rdata);
+                $i = substr(hash('sha256', json_encode([strtolower(rtrim($row['name'], '.')), $row['type'], $rdata], JSON_THROW_ON_ERROR)), 0, 40);
                 $row['id'] = $i;
                 $name = $row['name'] == $this->domain ? '@' : str_replace('.' . $this->domain, '', $row['name']);
                 $value = '';
@@ -115,7 +120,8 @@ class technitium implements DnsInterface
                     'UpdateTime' => null,
                 ];
             }
-            cache('technitium_' . $this->domain, $records, 86400);
+            $this->records = [];
+            foreach ($records as $record) $this->records[$record['id']] = $record;
 
             if (!isNullOrEmpty($SubDomain)) {
                 $list = array_values(array_filter($list, function ($v) use ($SubDomain) {
@@ -318,7 +324,7 @@ class technitium implements DnsInterface
 
     public function updateDomainRecord($RecordId, $Name, $Type, $Value, $Line = 'default', $TTL = 600, $MX = 1, $Weight = null, $Remark = null)
     {
-        $records = cache('technitium_' . $this->domain);
+        $records = $this->records;
         if (!$records || !isset($records[$RecordId])) {
             $this->setError('记录不存在，请刷新页面重试');
             return false;
@@ -334,7 +340,7 @@ class technitium implements DnsInterface
                 $oldValue .= ' ' . $oldRecord['rData']['recordData'];
             }
             if ($oldValue != rtrim($Value) || $domain != $newDomain) {
-                $this->deleteDomainRecord($RecordId);
+                if (!$this->deleteDomainRecord($RecordId)) return false;
                 return $this->addDomainRecord($Name, $Type, $Value, $Line, $TTL, $MX, $Weight, $Remark);
             }
         }
@@ -362,7 +368,7 @@ class technitium implements DnsInterface
 
     public function updateDomainRecordRemark($RecordId, $Remark)
     {
-        $records = cache('technitium_' . $this->domain);
+        $records = $this->records;
         if (!$records || !isset($records[$RecordId])) {
             $this->setError('记录不存在，请刷新页面重试');
             return false;
@@ -386,7 +392,7 @@ class technitium implements DnsInterface
 
     public function deleteDomainRecord($RecordId)
     {
-        $records = cache('technitium_' . $this->domain);
+        $records = $this->records;
         if (!$records || !isset($records[$RecordId])) {
             $this->setError('记录不存在，请刷新页面重试');
             return false;
@@ -410,7 +416,7 @@ class technitium implements DnsInterface
 
     public function setDomainRecordStatus($RecordId, $Status)
     {
-        $records = cache('technitium_' . $this->domain);
+        $records = $this->records;
         if (!$records || !isset($records[$RecordId])) {
             $this->setError('记录不存在，请刷新页面重试');
             return false;

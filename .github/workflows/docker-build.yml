@@ -112,6 +112,21 @@ jobs:
           curl --fail --silent --show-error --location --max-time 20 http://127.0.0.1:18081/install > "$RUNNER_TEMP/dnsmgr-install.html"
           test -s "$RUNNER_TEMP/dnsmgr-install.html"
           grep -q '安装' "$RUNNER_TEMP/dnsmgr-install.html"
+          for program in php-fpm nginx; do
+            before=$(docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf pid "$program" | tr -d '\r')
+            test "$before" -gt 1
+            docker exec dnsmgr-smoke kill -KILL "$before"
+            recovered=false
+            for attempt in $(seq 1 20); do
+              after=$(docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf pid "$program" | tr -d '\r')
+              if [ "$after" -gt 1 ] && [ "$after" != "$before" ] && curl --fail --silent --max-time 5 http://127.0.0.1:18081/install > /dev/null; then
+                recovered=true
+                break
+              fi
+              sleep 1
+            done
+            test "$recovered" = true
+          done
 
       - name: Clean up test container
         if: always()

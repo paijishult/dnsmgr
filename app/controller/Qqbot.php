@@ -11,7 +11,9 @@ class Qqbot extends BaseController
 {
     public function webhook()
     {
+        if (!$this->request->isPost()) return response('method not allowed', 405);
         $body = $this->request->getContent();
+        if (strlen($body) > 65536) return response('payload too large', 413);
         $payload = json_decode($body, true);
         if (!is_array($payload)) {
             return response('bad request', 400);
@@ -30,25 +32,23 @@ class Qqbot extends BaseController
 
         try {
             $bot = new \app\lib\QqBot($appId, $appSecret);
+            // QQ's official handler authenticates validation callbacks too.
+            // Signing an unauthenticated challenge creates an event-signing oracle.
+            $timestamp = $this->request->header('x-signature-timestamp', '');
+            $signature = $this->request->header('x-signature-ed25519', '');
+            if (!$bot->verifySignature($timestamp, $signature, $body)) {
+                return response('invalid signature', 401);
+            }
             $op = (int) ($payload['op'] ?? 0);
             if ($op === 13) {
                 $data = is_array($payload['d'] ?? null) ? $payload['d'] : [];
                 return json($bot->signValidation((string) ($data['event_ts'] ?? ''), (string) ($data['plain_token'] ?? '')));
             }
 
-            $timestamp = $this->request->header('x-signature-timestamp', '');
-            $signature = $this->request->header('x-signature-ed25519', '');
-            if (!$bot->verifySignature($timestamp, $signature, $body)) {
-                return response('invalid signature', 401);
-            }
-
-            if (strtoupper((string) ($payload['t'] ?? '')) === 'C2C_MESSAGE_CREATE') {
+            if ($op === 0 && strtoupper((string) ($payload['t'] ?? '')) === 'C2C_MESSAGE_CREATE') {
                 $event = is_array($payload['d'] ?? null) ? $payload['d'] : [];
                 $openid = $event['author']['user_openid'] ?? '';
-                $old = config_get('qqbot_openid', '');
-                if ($openid !== '' && $old !== $openid) {
-                    config_set('qqbot_openid', $openid);
-                    Cache::delete('configs');
+                if (is_string($openid) && \app\service\QqBotBindingService::consume($openid, $event['content'] ?? '', $appId, $appSecret)) {
                     try {
                         $bot->sendMarkdown(
                             $openid,

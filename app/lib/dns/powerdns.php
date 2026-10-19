@@ -14,6 +14,7 @@ class powerdns implements DnsInterface
     private $domain;
     private $domainid;
     private $proxy;
+    private array $rrsets = [];
 
     function __construct($config)
     {
@@ -63,13 +64,13 @@ class powerdns implements DnsInterface
             $list = [];
             $rrset_id = 0;
             foreach ($data['rrsets'] as &$row) {
-                $rrset_id++;
+                $rrset_id = substr(hash('sha256', $row['name'] . '|' . $row['type']), 0, 20);
                 $name = $row['name'] == $this->domainid ? '@' : str_replace('.' . $this->domainid, '', $row['name']);
                 $row['host'] = $name;
                 $row['id'] = $rrset_id;
                 $record_id = 0;
                 foreach ($row['records'] as &$record) {
-                    $record_id++;
+                    $record_id = substr(hash('sha256', $record['content']), 0, 20);
                     $record['id'] = $record_id;
                     $remark = !empty($row['comments']) ? $row['comments'][0]['content'] : null;
                     $value = $record['content'];
@@ -90,7 +91,7 @@ class powerdns implements DnsInterface
                     ];
                 }
             }
-            cache('powerdns_' . $this->domainid, $data['rrsets'], 86400);
+            $this->rrsets = $data['rrsets'];
             if (!isNullOrEmpty($SubDomain)) {
                 $list = array_values(array_filter($list, function ($v) use ($SubDomain) {
                     return strcasecmp($v['Name'], $SubDomain) === 0;
@@ -141,7 +142,7 @@ class powerdns implements DnsInterface
         if (($Type == 'CNAME' || $Type == 'MX') && substr($Value, -1) != '.') $Value .= '.';
         if ($Type == 'MX') $Value = intval($MX) . ' ' . $Value;
         $records = [];
-        $rrsets = cache('powerdns_' . $this->domainid);
+        $rrsets = $this->rrsets;
         if ($rrsets) {
             $rrsets_filter = array_filter($rrsets, function ($row) use ($Name, $Type) {
                 return $row['host'] == $Name && $row['type'] == $Type;
@@ -168,7 +169,7 @@ class powerdns implements DnsInterface
         if ($Type == 'TXT' && substr($Value, 0, 1) != '"') $Value = '"' . $Value . '"';
         if (($Type == 'CNAME' || $Type == 'MX') && substr($Value, -1) != '.') $Value .= '.';
         if ($Type == 'MX') $Value = intval($MX) . ' ' . $Value;
-        $rrsets = cache('powerdns_' . $this->domainid);
+        $rrsets = $this->rrsets;
         $add = false;
         $res = false;
         if ($rrsets) {
@@ -211,7 +212,7 @@ class powerdns implements DnsInterface
                 $this->setError('记录不存在，请刷新页面重试');
                 return false;
             }
-            cache('powerdns_' . $this->domainid, $rrsets, 86400);
+            $this->rrsets = $rrsets;
             if ($res && $add) {
                 $res = $this->addDomainRecord($Name, $Type, $Value, $Line, $TTL, $MX, $Weight, $Remark);
             }
@@ -231,7 +232,7 @@ class powerdns implements DnsInterface
     //删除解析记录
     public function deleteDomainRecord($RecordId)
     {
-        $rrsets = cache('powerdns_' . $this->domainid);
+        $rrsets = $this->rrsets;
         if (!$rrsets) {
             $this->setError('记录不存在，请刷新页面重试');
             return false;
@@ -264,14 +265,14 @@ class powerdns implements DnsInterface
             $this->setError('记录不存在，请刷新页面重试');
             return false;
         }
-        cache('powerdns_' . $this->domainid, $rrsets, 86400);
+        $this->rrsets = $rrsets;
         return $res;
     }
 
     //设置解析记录状态
     public function setDomainRecordStatus($RecordId, $Status)
     {
-        $rrsets = cache('powerdns_' . $this->domainid);
+        $rrsets = $this->rrsets;
         if (!$rrsets) {
             $this->setError('记录不存在，请刷新页面重试');
             return false;
@@ -299,7 +300,7 @@ class powerdns implements DnsInterface
             $this->setError('记录不存在，请刷新页面重试');
             return false;
         }
-        cache('powerdns_' . $this->domainid, $rrsets, 86400);
+        $this->rrsets = $rrsets;
         return $res;
     }
 
@@ -352,7 +353,7 @@ class powerdns implements DnsInterface
             'type' => $type,
             'ttl' => intval($ttl),
             'changetype' => 'REPLACE',
-            'records' => $records,
+            'records' => array_map(static fn($record) => array_intersect_key($record, array_flip(['content', 'disabled', 'set-ptr'])), $records),
             'comments' => [],
         ];
         if (!empty($remark)) {

@@ -1126,6 +1126,13 @@ username ALL=(ALL) NOPASSWD: NOPASSWD: ALL<br/>
 ctrl+x 保存退出<br/>',
             'tasknote' => '系统会根据关联SSL证书的域名，自动更新对应证书',
             'inputs' => [
+                'host_fingerprint' => [
+                    'name' => 'SSH主机指纹',
+                    'type' => 'input',
+                    'placeholder' => '通过可信渠道核实的40位SHA-1主机指纹',
+                    'required' => true,
+                    'note' => '必须从服务器控制台或已验证的SSH连接获取，不能使用未验证连接返回的指纹。升级后已有账户也需填写。',
+                ],
                 'host' => [
                     'name' => '主机地址',
                     'type' => 'input',
@@ -2707,6 +2714,13 @@ ctrl+x 保存退出<br/>',
             'note' => '可通过SSH连接到Linux/Windows服务器并部署证书，php需要安装ssh2扩展',
             'tasknote' => '请确保路径存在且有写入权限，路径一定要以/开头（Windows路径请使用/代替\，且需要在最开头加/）',
             'inputs' => [
+                'host_fingerprint' => [
+                    'name' => 'SSH主机指纹',
+                    'type' => 'input',
+                    'placeholder' => '通过可信渠道核实的40位SHA-1主机指纹',
+                    'required' => true,
+                    'note' => '必须从服务器控制台或已验证的SSH连接获取，不能使用未验证连接返回的指纹。升级后已有账户也需填写。',
+                ],
                 'host' => [
                     'name' => '主机地址',
                     'type' => 'input',

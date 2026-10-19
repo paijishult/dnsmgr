@@ -120,7 +120,7 @@ class Dmonitor extends BaseController
             if ($task['type'] == 2 && $task['backup_value'] == $task['main_value']) {
                 return json(['code' => -1, 'msg' => '主备地址不能相同']);
             }
-            if (Db::name('dmtask')->where('recordid', $task['recordid'])->find()) {
+            if (Db::name('dmtask')->where('did', $task['did'])->where('recordid', $task['recordid'])->find()) {
                 return json(['code' => -1, 'msg' => '当前容灾切换策略已存在']);
             }
             Db::name('dmtask')->insert($task);
@@ -157,7 +157,7 @@ class Dmonitor extends BaseController
             if ($task['type'] == 2 && $task['backup_value'] == $task['main_value']) {
                 return json(['code' => -1, 'msg' => '主备地址不能相同']);
             }
-            if (Db::name('dmtask')->where('recordid', $task['recordid'])->where('id', '<>', $id)->find()) {
+            if (Db::name('dmtask')->where('did', $task['did'])->where('recordid', $task['recordid'])->where('id', '<>', $id)->find()) {
                 return json(['code' => -1, 'msg' => '当前容灾切换策略已存在']);
             }
             Db::name('dmtask')->where('id', $id)->update($task);

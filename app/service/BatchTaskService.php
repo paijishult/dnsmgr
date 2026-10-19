@@ -29,6 +29,11 @@ class BatchTaskService
     /** Re-check current permissions and credential revocation before and between changes. */
     public static function authorize(array $identity, array $domain): void
     {
+        $current = Db::name('domain')->where('id', $domain['id'])->find();
+        if (!$current || array_map('strval', [$current['aid'], $current['name'], $current['thirdid']])
+            !== array_map('strval', [$domain['aid'], $domain['name'], $domain['thirdid']])) {
+            throw new \RuntimeException('任务域名已删除或账户绑定已变更，请重新预览');
+        }
         $user = Db::name('user')->where('id', (int)($identity['uid'] ?? 0))->find();
         $key = !empty($identity['kid']) ? Db::name('apikey')->where('id', (int)$identity['kid'])->find() : null;
         if (!$user || $user['status'] != 1 || !in_array((int)$user['level'], [1, 2], true)

@@ -45,7 +45,9 @@ try {
     }
     requests.push({url:p,method:req.method(),csrf:req.headers()['x-csrf-token']||null});
     let data={code:0,msg:'fixture',total:1,rows:[row],data:[]};
-    if(p==='/batch/details')data={code:0,task,results:[{index:0,success:true},{index:1,success:false,message:task.error}]};
+    if(p.startsWith('/record/snapshot/'))data={code:0,msg:'快照创建成功',snapshot_id:901};
+    else if(p.startsWith('/record/history/data/'))data=req.postData()?.includes('snapshotid=')?{code:0,data:[row]}:{total:1,rows:[{id:901,label:'手动快照',record_count:1,addtime:'2026-10-20 10:00:00'}]};
+    else if(p==='/batch/details')data={code:0,task,results:[{index:0,success:true},{index:1,success:false,message:task.error}]};
     else if(p==='/batch/enqueue')data={code:0,msg:'已加入后台任务',id:1};
     else if(p.startsWith('/batch/task/'))data={code:0,msg:'设置成功'};
     else if(p==='/batch/data')data={total:5,rows:[0,1,2,3,4].map((status,i)=>({...task,id:i+1,status}))};
@@ -112,6 +114,18 @@ try {
     if(await page.locator('#totp-close-form [name=password]').count()!==1||await page.locator('#totp-close-form [name=code]').count()!==1)throw new Error('missing credentials');
     await page.evaluate(()=>layer.closeAll());
    });
+   if(await page.locator('.sidebar-menu a[href="/batch"]').count())await check('batch sidebar last and short label',async()=>{
+    const last=page.locator('.sidebar-menu > li').last();
+    if(await last.locator('a[href="/batch"] span').innerText()!=='批量任务')throw new Error('batch entry is not last or label is long');
+   });
+   if(entry.name==='domain/history')await check('snapshot saved location feedback',async()=>{
+    await page.locator('#createSnapshot').click();await page.locator('#historyMessage').filter({hasText:'快照 #901 已保存'}).waitFor();
+    if(!await page.locator('#snapshotList #historyMessage').isVisible())throw new Error('saved location feedback is not in the snapshot panel');
+    await page.locator('.snapshot-view[data-id="901"]').waitFor();
+    await page.screenshot({path:path.join(reportDir,'snapshot-saved-'+width+'.png'),fullPage:false});
+    await page.locator('.snapshot-open-saved').click();await page.locator('#detailModal').waitFor({state:'visible'});await page.locator('#detailModal [data-dismiss="modal"]').first().click();await page.locator('#detailModal').waitFor({state:'hidden'});
+    if(!requests.some(r=>r.url==='/record/snapshot/1'&&r.method==='POST'&&r.csrf))throw new Error('snapshot save missing POST/token');
+   });
    if(entry.name==='domain/history')await check('review token consumed once',async()=>{
     await page.locator('#recordLines').fill('www 192.0.2.1');await page.locator('#previewButton').click();
     await page.locator('#enqueueChanges').waitFor({state:'visible'});
@@ -121,6 +135,8 @@ try {
     await page.locator('#detailModal [data-dismiss="modal"]').first().click();
    });
    if(entry.name==='batch/index')await check('batch task details and actions',async()=>{
+    if(!await page.locator('.panel-body').first().innerText().then(text=>text.includes('快照在哪里')&&text.includes('批量任务的作用')))throw new Error('missing feature explanation');
+    await page.locator('#viewDomainSnapshots').click();await page.locator('#batchMessage').filter({hasText:'请先选择'}).waitFor();
     await page.locator('.task-details').first().click();await page.locator('#taskResults tr').first().waitFor();
     if(await page.locator('#taskModal img[onerror]').count())throw new Error('task failure rendered as HTML');
     await page.locator('#taskModal [data-dismiss="modal"]').first().click();await page.locator('#taskModal').waitFor({state:'hidden'});

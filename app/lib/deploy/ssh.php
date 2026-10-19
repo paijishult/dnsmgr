@@ -34,31 +34,16 @@ class ssh implements DeployInterface
         }
         $sftp = ssh2_sftp($connection);
         if ($config['format'] == 'pem') {
-            $stream = fopen("ssh2.sftp://$sftp{$config['pem_cert_file']}", 'w');
-            if (!$stream) {
-                throw new Exception("无法创建证书文件：{$config['pem_cert_file']}");
-            }
-            fwrite($stream, $fullchain);
-            fclose($stream);
+            \app\lib\SshSecurity::upload($sftp, $config['pem_cert_file'], $fullchain, 0644);
             $this->log('证书已保存到：' . $config['pem_cert_file']);
 
-            $stream = fopen("ssh2.sftp://$sftp{$config['pem_key_file']}", 'w');
-            if (!$stream) {
-                throw new Exception("无法创建私钥文件：{$config['pem_key_file']}");
-            }
-            fwrite($stream, $privatekey);
-            fclose($stream);
+            \app\lib\SshSecurity::upload($sftp, $config['pem_key_file'], $privatekey, 0600);
             $this->log('私钥已保存到：' . $config['pem_key_file']);
         } elseif ($config['format'] == 'pfx') {
             $pfx_pass = $config['pfx_pass'] ?? null;
             $pfx = CertHelper::getPfx($fullchain, $privatekey, $pfx_pass);
 
-            $stream = fopen("ssh2.sftp://$sftp{$config['pfx_file']}", 'w');
-            if (!$stream) {
-                throw new Exception("无法创建PFX证书文件：{$config['pfx_file']}");
-            }
-            fwrite($stream, $pfx);
-            fclose($stream);
+            \app\lib\SshSecurity::upload($sftp, $config['pfx_file'], $pfx, 0600);
             $this->log('PFX证书已保存到：' . $config['pfx_file']);
 
             if ($config['uptype'] == '1' && !empty($config['iis_domain'])) {
@@ -147,20 +132,18 @@ class ssh implements DeployInterface
             throw new Exception('端口不合法');
         }
 
-        $connection = ssh2_connect($this->config['host'], intval($this->config['port']));
+        $connection = \app\lib\SshSecurity::connect($this->config);
         if (!$connection) {
             throw new Exception('SSH连接失败');
         }
         if ($this->config['auth'] == '1') {
             $publicKey = $this->getPublicKey($this->config['privatekey']);
-            $publicKeyPath = app()->getRuntimePath() . $this->config['host'] . '.pub';
-            $privateKeyPath = app()->getRuntimePath() . $this->config['host'] . '.key';
-            $umask = umask(0066);
-            file_put_contents($privateKeyPath, $this->config['privatekey']);
-            file_put_contents($publicKeyPath, $publicKey);
-            umask($umask);
-            
+            $directory = \app\lib\SecureFiles::temporaryDirectory();
+            $publicKeyPath = $directory . '/auth.pub';
+            $privateKeyPath = $directory . '/auth.key';
             try {
+                \app\lib\SecureFiles::write($privateKeyPath, $this->config['privatekey']);
+                \app\lib\SecureFiles::write($publicKeyPath, $publicKey);
                 if (!empty($this->config['passphrase'])) {
                     if (!ssh2_auth_pubkey_file($connection, $this->config['username'], $publicKeyPath, $privateKeyPath, $this->config['passphrase'])) {
                         throw new Exception('私钥认证失败');
@@ -171,8 +154,7 @@ class ssh implements DeployInterface
                     }
                 }
             } finally {
-                unlink($publicKeyPath);
-                unlink($privateKeyPath);
+                \app\lib\SecureFiles::removeDirectory($directory);
             }
         } else {
             if (!ssh2_auth_password($connection, $this->config['username'], $this->config['password'])) {
@@ -192,6 +174,7 @@ class ssh implements DeployInterface
         if (!$details || !isset($details['key'])) {
             throw new Exception('从私钥导出公钥失败');
         }
+        if (!isset($details['rsa'])) throw new Exception('当前SSH私钥认证仅支持RSA PEM私钥');
         $buffer = pack("N", 7) . "ssh-rsa" .
             $this->sshEncodeBuffer($details['rsa']['e']) .
             $this->sshEncodeBuffer($details['rsa']['n']);

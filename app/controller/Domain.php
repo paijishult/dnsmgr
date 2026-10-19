@@ -1333,7 +1333,7 @@ class Domain extends BaseController
             $data .= ' [API]';
         }
         if (strlen($data) > 500) $data = mb_strcut($data, 0, 500);
-        Db::name('log')->insert(['uid' => request()->user['id'], 'domain' => $domain, 'action' => $action, 'data' => $data, 'addtime' => date("Y-m-d H:i:s")]);
+        Db::name('log')->insert(['uid' => request()->user['type'] === 'user' ? request()->user['id'] : 0, 'domain' => $domain, 'action' => $action, 'data' => $data, 'addtime' => date("Y-m-d H:i:s")]);
     }
 
 
