@@ -126,6 +126,10 @@ jobs:
               sleep 1
             done
             test "$recovered" = true
+            sleep 3
+            test "$(docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf pid "$program" | tr -d '\r')" = "$after"
+            docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf status "$program" | grep -q RUNNING
+            curl --fail --silent --show-error --max-time 10 http://127.0.0.1:18081/install > /dev/null
           done
 
       - name: Clean up test container
