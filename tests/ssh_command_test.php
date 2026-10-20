@@ -14,7 +14,7 @@ namespace app\lib\deploy {
             $process=proc_open(PHP_OS_FAMILY==='Windows'?['cmd.exe','/D','/S','/C',$command]:['sh','-c',$command],[1=>['pipe','w'],2=>['pipe','w']],$pipes);
             if(!is_resource($process))throw new \RuntimeException('Cannot start isolated shell');
             $text=stream_get_contents($pipes[1]);$error=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$status=proc_close($process);
-            if(PHP_OS_FAMILY==='Windows'&&$error!=='')fwrite(STDERR,json_encode(['test_transport_exit'=>$status,'stdout64'=>base64_encode(substr($text,-800)),'stderr64'=>base64_encode(substr($error,-800))]).PHP_EOL);
+            if(PHP_OS_FAMILY==='Windows'&&($error!==''||!preg_match('/__DNSMGR_EXIT_[a-f0-9]+__[0-9]+(?:\r?\n)?\z/D',$text)))fwrite(STDERR,json_encode(['test_transport_exit'=>$status,'stdout64'=>base64_encode(substr($text,-800)),'stderr64'=>base64_encode(substr($error,-800))]).PHP_EOL);
             $text.=$error;
         }
         $stream=fopen('php://memory','r+');fwrite($stream,$text);rewind($stream);return $stream;
@@ -25,16 +25,16 @@ namespace {
     require __DIR__.'/../app/lib/DeployInterface.php';require __DIR__.'/../app/lib/SensitiveLog.php';require __DIR__.'/../app/lib/deploy/ssh.php';
     if(!defined('SSH2_STREAM_STDERR'))define('SSH2_STREAM_STDERR',1);
     $checks=0;function commandCheck($ok,$message){$GLOBALS['checks']++;if(!$ok)throw new RuntimeException($message);}
-    function commandReject($callback,$message){try{$callback();}catch(Throwable $e){commandCheck(true,$message);return;}throw new RuntimeException($message);}
+    function commandReject($callback,$message,$reason=null){try{$callback();}catch(Throwable $e){if($reason!==null&&!str_contains($e->getMessage(),$reason))throw $e;commandCheck(true,$message);return;}throw new RuntimeException($message);}
     $windows=PHP_OS_FAMILY==='Windows';$GLOBALS['command_sent']=[];$GLOBALS['command_exit']=0;$GLOBALS['command_no_marker']=false;
     $client=new app\lib\deploy\ssh(['windows'=>$windows?'1':'0']);$logs=[];$client->setLogger(function($line)use(&$logs){$logs[]=$line;});$exec=new ReflectionMethod($client,'exec');
-    $GLOBALS['command_exit']=7;commandReject(fn()=>$exec->invoke($client,null,$windows?'exit /b 7':'exit 7'),'A nonzero exit with empty stderr must fail');
+    $GLOBALS['command_exit']=7;commandReject(fn()=>$exec->invoke($client,null,$windows?'exit /b 7':'exit 7'),'A nonzero exit with empty stderr must fail','退出码7');
     $GLOBALS['command_exit']=0;$exec->invoke($client,null,$windows?'echo harmless-warning 1>&2':'printf harmless-warning >&2');
     commandCheck(!str_contains(implode("\n",$logs),'harmless-warning'),'Successful stderr output is accepted and never persisted');
     $exec->invoke($client,null,$windows?'echo SecretFixtureOnly42':'printf SecretFixtureOnly42');
     commandCheck(!str_contains(implode("\n",$logs),'SecretFixtureOnly42'),'Neither command input nor arbitrary stdout is logged');
     if(function_exists('post_message_to_js')){$GLOBALS['command_no_marker']=true;commandReject(fn()=>$exec->invoke($client,null,'true'),'Missing exit receipt must fail');$GLOBALS['command_no_marker']=false;}
-    else {commandReject(fn()=>$exec->invoke($client,null,$windows?'exit /b 19':'exit 19'),'A real shell does not hide an explicit exit');}
+    else {commandReject(fn()=>$exec->invoke($client,null,$windows?'exit /b 19':'exit 19'),'A real shell does not hide an explicit exit','退出码19');}
     if(!$windows&&!function_exists('post_message_to_js')){
         $output=$exec->invoke($client,null,"printf '%s' 'value with spaces; & dollar $ literal'");
         commandCheck($output==='value with spaces; & dollar $ literal','A real POSIX shell preserves command quoting');
