@@ -101,7 +101,7 @@ class ssh implements DeployInterface
         $this->log('开始执行：' . $name);
         $marker = '__DNSMGR_EXIT_' . bin2hex(random_bytes(12)) . '__';
         if (($this->config['windows'] ?? '0') == '1') {
-            $body = $nativePowerShell ? $cmd : '& $env:ComSpec /D /S /C ' . "'" . str_replace("'", "''", $cmd) . "'";
+            $body = $nativePowerShell ? $cmd : '& $env:ComSpec /D /S /C ' . "'" . str_replace("'", "''", $cmd . ' 2>&1') . "'";
             $script = '$ErrorActionPreference=\'Stop\'; $global:LASTEXITCODE=0; try { & { ' . $body . ' }; $dnsmgrCode=[int]$global:LASTEXITCODE } catch { $dnsmgrCode=1 }; [Console]::Out.Write("`n' . $marker . '"+$dnsmgrCode); exit $dnsmgrCode';
             $command = 'powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ' . base64_encode(mb_convert_encoding($script, 'UTF-16LE', 'UTF-8')) . ' 2>&1';
         } else {
@@ -118,7 +118,7 @@ class ssh implements DeployInterface
             $errorOutput = stream_get_contents($errorStream, 65537);
             if ((stream_get_meta_data($stream)['timed_out'] ?? false) || (stream_get_meta_data($errorStream)['timed_out'] ?? false)) throw new Exception($name . '执行超时，请核实远端状态');
             if (!is_string($output) || strlen($output) > 1048576 || strlen((string)$errorOutput) > 65536) throw new Exception($name . '输出超过安全上限，请核实远端状态');
-            if (!preg_match('/\r?\n' . preg_quote($marker, '/') . '([0-9]+)\z/D', $output, $match)) throw new Exception($name . '未取得退出状态，请核实远端状态');
+            if (!preg_match('/\r?\n' . preg_quote($marker, '/') . '([0-9]+)(?:\r?\n)?\z/D', $output, $match)) throw new Exception($name . '未取得退出状态，请核实远端状态');
             if (!in_array((int)$match[1], $allowed, true)) throw new Exception($name . '执行失败（退出码' . (int)$match[1] . '），请在服务器检查命令');
             $output = substr($output, 0, -strlen($match[0]));
             if (($this->config['windows'] ?? '0') == '1' && $this->containsGBKChinese($output)) $output = mb_convert_encoding($output, 'UTF-8', 'GBK');

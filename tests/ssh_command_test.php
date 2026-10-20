@@ -13,7 +13,9 @@ namespace app\lib\deploy {
         }else{
             $process=proc_open(PHP_OS_FAMILY==='Windows'?['cmd.exe','/D','/S','/C',$command]:['sh','-c',$command],[1=>['pipe','w'],2=>['pipe','w']],$pipes);
             if(!is_resource($process))throw new \RuntimeException('Cannot start isolated shell');
-            $text=stream_get_contents($pipes[1]);$error=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);proc_close($process);$text.=$error;
+            $text=stream_get_contents($pipes[1]);$error=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$status=proc_close($process);
+            if(PHP_OS_FAMILY==='Windows'&&$error!=='')fwrite(STDERR,json_encode(['test_transport_exit'=>$status,'stdout64'=>base64_encode(substr($text,-800)),'stderr64'=>base64_encode(substr($error,-800))]).PHP_EOL);
+            $text.=$error;
         }
         $stream=fopen('php://memory','r+');fwrite($stream,$text);rewind($stream);return $stream;
     }

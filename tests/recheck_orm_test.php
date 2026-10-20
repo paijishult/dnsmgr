@@ -33,7 +33,7 @@ $password="Fixture PFX'Only42\nsecond line";$pid=str_repeat('b',32);
 think\facade\Db::name('cert_deploy')->insert(['id'=>20,'oid'=>10,'aid'=>1,'processid'=>$pid,'config'=>json_encode(['pfx_pass'=>$password])]);
 think\facade\Db::name('cert_account')->insert(['id'=>1,'type'=>'ssh','name'=>'fixture-host','config'=>'{}','ext'=>null]);
 $request=$app->request;$request->isApi=true;$request->user=['type'=>'user','id'=>1,'level'=>2];$request->apiKey=['scopes'=>['deploy:read']];$request->withPost(['action'=>'show_log','id'=>20]);
-mkdir($app->getRuntimePath().'log',0700,true);$path=$app->getRuntimePath().'log/'.$pid.'.log';
+if(!is_dir($app->getRuntimePath().'log'))mkdir($app->getRuntimePath().'log',0700,true);$path=$app->getRuntimePath().'log/'.$pid.'.log';
 file_put_contents($path,'执行命令：certutil -p "HistoricalPfxOnly42" -importPFX C:/cert.pfx'."\n".$password."\n".json_encode($password));
 $response=(new app\controller\Cert($app))->deploy_op();$data=$response->getData();
 $content=app\lib\AuditHelper::scrub($response->getContent(),app\lib\AuditHelper::apiScrubValues());
