@@ -32,6 +32,7 @@ class Certtask extends Command
         Config::set($res, 'sys');
         \app\service\FeatureMigrationService::ensure();
         (new \app\service\BatchTaskService())->execute();
+        \app\service\CertDnsService::retryCleanup(static function ($line) { echo $line . PHP_EOL; });
 
         (new ScheduleService())->execute();
         $res = (new OptimizeService())->execute();

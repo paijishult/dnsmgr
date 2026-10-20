@@ -5,6 +5,7 @@ use app\lib\DnsHelper;
 use app\lib\GuardedDns;
 use RuntimeException;
 use think\facade\Db;
+use think\facade\Cache;
 
 /** ACME records coexist with other orders; leases distinguish our values from pre-existing DNS. */
 class CertDnsService
@@ -74,6 +75,35 @@ class CertDnsService
                 }
                 Db::name('cert_dns_lease')->where('oid', $oid)->where('claim', $lease['claim'])->delete();
             } finally { unset($dns); }
+        }
+    }
+
+    /** Leases are a durable cleanup queue, including orphaned rows from older releases. */
+    public static function retryCleanup(callable $log, int $limit = 20): void
+    {
+        $limit = max(1, min(100, $limit));
+        $cursor = max(0, (int)Cache::get('cert_dns_cleanup_cursor'));
+        $candidates = static function (int $after) use ($limit) {
+            return Db::name('cert_dns_lease')->alias('L')->leftJoin('cert_order O', 'L.oid = O.id')
+                ->whereRaw('(O.id IS NULL OR O.status IN (3,4))')->where('L.oid', '>', $after)
+                ->group('L.oid')->order('L.oid')->limit($limit)->column('L.oid');
+        };
+        $ids = $candidates($cursor);
+        if (!$ids && $cursor) $ids = $candidates(0);
+        foreach ($ids as $oid) {
+            Cache::set('cert_dns_cleanup_cursor', (int)$oid, 0);
+            $db = TaskLockService::connection();
+            $lock = new TaskLockService($db, 'cert-order:' . (int)$oid);
+            try {
+                $lock->acquire();
+                $order = $db->name('cert_order')->where('id', $oid)->find();
+                // A renewal may have started after the candidate list was loaded.
+                if ($order && !in_array((int)$order['status'], [3,4], true)) continue;
+                self::remove((int)$oid, $log);
+                if ($order && str_starts_with((string)($order['error'] ?? ''), 'DNS清理待重试：')) $db->name('cert_order')->where('id', $oid)->update(['error'=>null]);
+            } catch (\Throwable $e) {
+                $log('订单' . (int)$oid . '的DNS清理保留待重试：' . \app\lib\SensitiveLog::filter($e->getMessage()));
+            } finally { try { $lock->release(); } finally { $db->close(); } }
         }
     }
 

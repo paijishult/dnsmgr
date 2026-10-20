@@ -165,7 +165,8 @@ class DnsChangeService
                     $ok = self::execute($dns, $op);
                     if ($ok === false || $ok === null) throw new RuntimeException('DNS平台执行失败：' . $dns->getError());
                     $records = RecordGuard::all($dns, $domain['name']);
-                    self::assertOutcome($current, $records, $op, $change['before']);
+                    self::assertOutcome($current, $records, $op, $change['before'], $dns instanceof \app\lib\dns\powerdns);
+                    if ($op['action'] === 'update') \app\lib\AutomaticDnsTarget::synchronize($dns, $domain, (string)$op['recordid'], $op, $records, $this->connection);
                     $expectedFingerprint = RecordGuard::fingerprint($records);
                     $results[] = ['index' => $index, 'success' => true];
                     $completed++;
@@ -180,7 +181,7 @@ class DnsChangeService
         } finally { flock($lock, LOCK_UN); fclose($lock); }
     }
 
-    private static function assertOutcome(array $before, array $after, array $op, ?array $original): void
+    private static function assertOutcome(array $before, array $after, array $op, ?array $original, bool $powerDns = false): void
     {
         $unchanged = $before;
         if ($original !== null) {
@@ -203,7 +204,10 @@ class DnsChangeService
             foreach ($expected as $key => $value) {
                 if ($value === null) continue;
                 $actual = $record[$key] ?? null;
-                if (in_array($key, ['Value', 'Name'], true) && in_array($op['type'] ?? ($original['Type'] ?? ''), ['CNAME', 'NS', 'MX', 'PTR'], true) && is_string($actual) && is_string($value)) {
+                if ($powerDns && $key === 'Value' && ($op['type'] ?? '') === 'TXT' && is_string($value)) {
+                    $wire = str_starts_with($value, '"') ? $value : '"' . $value . '"';
+                    if ($actual !== $wire) $matches = false;
+                } elseif (in_array($key, ['Value', 'Name'], true) && in_array($op['type'] ?? ($original['Type'] ?? ''), ['CNAME', 'NS', 'MX', 'PTR'], true) && is_string($actual) && is_string($value)) {
                     if (strcasecmp(rtrim($actual, '.'), rtrim($value, '.')) !== 0) $matches = false;
                 } elseif (is_array($actual) || is_array($value)) { if ($actual !== $value) $matches = false; }
                 elseif ((string)$actual !== (string)$value) $matches = false;

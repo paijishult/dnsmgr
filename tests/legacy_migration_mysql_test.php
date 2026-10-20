@@ -18,6 +18,7 @@ namespace {
         public function query($sql,$bind=[],$master=true){$q=$this->pdo->prepare($sql);$q->execute($bind);return $q->fetchAll(PDO::FETCH_ASSOC);}
         public function execute($sql){if($GLOBALS['legacy_deny']!==''&&str_contains($sql,'ADD COLUMN `'.$GLOBALS['legacy_deny'].'`'))throw new RuntimeException('simulated DDL permission denial');return $this->pdo->exec($sql);}
         public function name($table){return new LegacyQuery($this,$GLOBALS['legacy_prefix'].$table);}public function close(){}
+        public function getSchemaInfo($table,$force){if(!$force)throw new RuntimeException('Schema must be refreshed');return $this->query('SHOW COLUMNS FROM `'.$table.'`');}
     }
     class LegacyQuery {
         private string $where='';private array $bind=[];

@@ -101,6 +101,18 @@ jobs:
           name: native-browser-qa
           path: ${{ runner.temp }}/dnsmgr-pages/browser
           if-no-files-found: ignore
+  windows-ssh:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, openssl
+          coverage: none
+      - name: Real Windows command exit handling
+        run: php tests/ssh_command_test.php
   mysql:
     runs-on: ubuntu-latest
     timeout-minutes: 15

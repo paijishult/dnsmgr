@@ -11,6 +11,9 @@ $sensitive=json_encode(['password'=>'fixture words with spaces and "quotes"','Cl
 $filtered=SensitiveLog::filter($sensitive);
 archiveCheck(!str_contains($filtered,'spaces')&&!str_contains($filtered,'quotes')&&!str_contains($filtered,'bearer fixture'),'Quoted multiword secrets and JSON escapes are completely redacted');
 archiveCheck(!str_contains(SensitiveLog::filter('Authorization: Bearer fixture-header-credential'),'fixture-header-credential'),'Unquoted authorization headers are redacted');
+foreach(['certutil -p FixturePfxOnly42 -importPFX C:/cert.pfx','CERTUTIL.EXE -p "fixture pass with spaces" -importPFX C:/cert.pfx'] as $oldLog)archiveCheck(!str_contains(SensitiveLog::filter($oldLog),' -p '),'Historical positional certutil passwords are hidden');
+$secret="fixture\npass \"quoted\"";$filtered=SensitiveLog::filter('native output '.$secret.' '.json_encode($secret),SensitiveLog::secrets(['pfx_pass'=>$secret]));
+archiveCheck(!str_contains($filtered,'quoted')&&!str_contains($filtered,'fixture'),'Known task secrets are masked even in multi-line and JSON-escaped output');
 $directory=SecureFiles::temporaryDirectory();
 try {
     SecureFiles::write($directory.'/private.key','fixture',0600);SecureFiles::write($directory.'/private.key','replacement',0600);

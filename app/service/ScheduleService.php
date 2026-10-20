@@ -86,10 +86,6 @@ class ScheduleService
             $this->add_log($domain, $action . '失败', $error);
             throw new \RuntimeException($error ?: '云端DNS操作失败');
         }
-        if ((int)$row['switchtype'] === 0) {
-            $newId = \app\lib\AutomaticDnsTarget::afterUpdate($dns, $drow, $row['rr'], $row['value'], $recordinfo['Line']);
-            if ($newId !== null) \app\lib\AutomaticDnsTarget::retarget($this->db(), (int)$row['did'], (string)$row['recordid'], $newId);
-        }
         $this->add_log($domain, $action, '定时' . $action . '成功');
     }
 

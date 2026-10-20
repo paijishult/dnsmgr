@@ -67,6 +67,9 @@ class LegacyMigrationService
                     } else { throw new RuntimeException('无法识别的数据库升级操作'); }
                 }
             } else { throw new RuntimeException('无法识别的数据库升级语句'); }
+            // Refresh both this connection and ThinkORM's shared field cache.
+            // A new connection alone can still reload the pre-upgrade schema.
+            $db->getSchemaInfo($match[1], true);
         }
     }
 

@@ -12,12 +12,14 @@ namespace think\facade {
     class Db {
         public static array $rows = [];
         public static function name($table) { return new \DnsFakeQuery($table); }
+        public static function connect() { return new \DnsFakeConnection(); }
     }
 }
 namespace app { class BaseController { protected $request; public function __construct() { $this->request=\request(); } protected function alert($type,$msg='') { return ['code'=>-1,'msg'=>$msg]; } } }
 namespace app\lib { class DnsHelper { public static $line_name=['aliyun'=>['DEF'=>'default']]; public static function getModel(...$args) { return $GLOBALS['dns_controller_model']; } } }
 namespace {
     require_once __DIR__ . '/../app/lib/RecordGuard.php';
+    require_once __DIR__ . '/../app/lib/AutomaticDnsTarget.php';
     require_once __DIR__ . '/../app/lib/GuardedDns.php';
     require_once __DIR__ . '/../app/service/DnsChangeService.php';
     use app\lib\RecordGuard;
@@ -37,6 +39,7 @@ namespace {
     function config_get($key,$default=null) { return $default; }
     class DnsRequest { public $user=['id'=>7,'type'=>'user'];public $apiKey=['id'=>1,'name'=>'test-key'];public $isApi=true;public function isPost(){return true;} public function isAjax(){return false;} }
     $GLOBALS['dns_test_request'] = new DnsRequest();
+    class DnsFakeConnection { public function name($table){return new DnsFakeQuery($table);} public function startTrans(){}public function commit(){}public function rollback(){} }
     class DnsFakeQuery {
         private array $where = [];
         public function __construct(private string $table) {}
@@ -48,6 +51,7 @@ namespace {
         public function insertGetId($row) { $row['id'] = count(Db::$rows[$this->table] ?? []) + 1; Db::$rows[$this->table][] = $row; return $row['id']; }
         public function find() { foreach (Db::$rows[$this->table] ?? [] as $row) { foreach ($this->where as $key => $value) if (($row[$key] ?? null) != $value) continue 2; return $row; } return null; }
         public function value($key) { return $this->find()[$key] ?? null; }
+        public function update($values) { $n=0;foreach(Db::$rows[$this->table]??[] as $i=>$row){foreach($this->where as $key=>$value)if(($row[$key]??null)!=$value)continue 2;Db::$rows[$this->table][$i]=array_merge($row,$values);$n++;}return $n; }
     }
     class DnsFake {
         public int $writes = 0;
@@ -183,5 +187,34 @@ namespace {
     expect($capDns->writes===0,'failed token consumption cannot trigger DNS writes');
     rejects(fn()=>$service->preview($domain,$capDns,[['action'=>'delete','recordid'=>'a']],'eviction-failure'),'failed eviction cannot create an unbounded preview file');
     Cache::$failDelete=false;
+    require __DIR__.'/../app/lib/DnsInterface.php';
+    require __DIR__.'/../app/lib/dns/powerdns.php';
+    function isNullOrEmpty($value){return $value===null||$value==='';}
+    function http_request($url,$body=null,...$args){
+        if($body===null)return ['code'=>200,'body'=>json_encode(['rrsets'=>$GLOBALS['power_zone']])];
+        foreach(json_decode($body,true)['rrsets'] as $change){$found=false;foreach($GLOBALS['power_zone'] as $i=>$rrset){if($rrset['name']!==$change['name']||$rrset['type']!==$change['type'])continue;$found=true;if($change['changetype']==='DELETE')unset($GLOBALS['power_zone'][$i]);else $GLOBALS['power_zone'][$i]=$change;}if(!$found&&$change['changetype']!=='DELETE')$GLOBALS['power_zone'][]=$change;}
+        $GLOBALS['power_zone']=array_values($GLOBALS['power_zone']);
+        if(!empty($GLOBALS['corrupt_power_txt']))foreach($GLOBALS['power_zone'] as &$rrset)if($rrset['type']==='TXT')$rrset['records'][0]['content'].=' ';
+        return ['code'=>204,'body'=>''];
+    }
+    $GLOBALS['power_zone']=[['name'=>'www.example.com.','type'=>'A','ttl'=>600,'records'=>[['content'=>'192.0.2.11','disabled'=>false]],'comments'=>[]]];
+    $power=new \app\lib\dns\powerdns(['ip'=>'192.0.2.1','port'=>8081,'apikey'=>'fixture-only','domain'=>'example.com','domainid'=>'example.com.']);
+    $oldId=$power->getDomainRecords()['list'][0]['RecordId'];
+    Db::$rows['dmtask']=[['did'=>1,'recordid'=>$oldId],['did'=>2,'recordid'=>$oldId]];Db::$rows['sctask']=[['did'=>1,'recordid'=>$oldId]];
+    $GLOBALS['dns_controller_model']=$power;$GLOBALS['dns_input']=['param.id'=>1,'post.recordid'=>$oldId,'post.name'=>'www','post.type'=>'A','post.value'=>'192.0.2.22','post.line'=>'default','post.ttl'=>600];
+    $response=$controller->record_update();$newId=$power->getDomainRecords()['list'][0]['RecordId'];
+    expect($response['code']===0&&$newId!==$oldId,'Real PowerDNS adapter accepts the native/API form update');
+    expect(Db::$rows['dmtask'][0]['recordid']===$newId&&Db::$rows['sctask'][0]['recordid']===$newId&&Db::$rows['dmtask'][1]['recordid']===$oldId,'Manual value changes synchronize paired tasks without crossing domains');
+    $next=new GuardedDns($power,$domain);expect($next->setDomainRecordStatus($newId,'0')!==false,'A task can still target the record after a manual edit');unset($next);
+    $preview=$service->preview($domain,$power,[['action'=>'update','recordid'=>$newId,'name'=>'www','type'=>'A','value'=>'192.0.2.33']],'power-review');
+    $result=$service->apply($domain,$power,$preview['token'],'power-review');$reviewId=$power->getDomainRecords()['list'][0]['RecordId'];
+    expect($result['complete']&&Db::$rows['dmtask'][0]['recordid']===$reviewId&&Db::$rows['sctask'][0]['recordid']===$reviewId,'Reviewed jobs synchronize the same task references');
+    $preview=$service->preview($domain,$power,[['action'=>'add','name'=>'proof','type'=>'TXT','value'=>'proof-text'],['action'=>'add','name'=>'next','type'=>'A','value'=>'192.0.2.44']],'power-txt');
+    $result=$service->apply($domain,$power,$preview['token'],'power-txt');
+    expect($result['complete']&&count($result['results'])===2,'PowerDNS wire quotes do not stop the remainder of a reviewed TXT batch');
+    $GLOBALS['corrupt_power_txt']=true;
+    $preview=$service->preview($domain,$power,[['action'=>'add','name'=>'broken','type'=>'TXT','value'=>'different-text']],'power-corruption');
+    $result=$service->apply($domain,$power,$preview['token'],'power-corruption');
+    expect(!$result['complete'],'TXT quote compatibility still rejects content/sibling mutations');
     echo 'DNS safety: ' . $checks . " checks passed\n";
 }

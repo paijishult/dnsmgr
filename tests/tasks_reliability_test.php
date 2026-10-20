@@ -18,7 +18,7 @@ namespace app\lib {
 namespace app\utils {
     class CheckUtils { public static function ping(...$args) { return ['status'=>$GLOBALS['health'], 'errmsg'=>'offline']; } }
     class MsgNotice { public static function send(...$args) { $GLOBALS['notices'][]=$args; } }
-    class CertDnsUtils { public static function verifyDns(...$args) { return true; } }
+    class CertDnsUtils { public static function verifyDns(...$args) { return true; } public static function delDns(...$args) {} }
 }
 namespace {
     require_once __DIR__.'/../app/lib/AutomaticDnsTarget.php';

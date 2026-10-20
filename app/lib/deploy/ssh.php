@@ -10,10 +10,12 @@ class ssh implements DeployInterface
 {
     private $logger;
     private $config;
+    private array $secrets;
 
     public function __construct($config)
     {
         $this->config = $config;
+        $this->secrets = \app\lib\SensitiveLog::secrets($config);
     }
 
     public function check()
@@ -23,13 +25,14 @@ class ssh implements DeployInterface
 
     public function deploy($fullchain, $privatekey, $config, &$info)
     {
+        $this->secrets = array_merge($this->secrets, \app\lib\SensitiveLog::secrets($config));
         $connection = $this->connect();
         if (isset($config['cmd_pre']) && !empty($config['cmd_pre'])) {
             $cmds = explode("\n", $config['cmd_pre']);
             foreach ($cmds as $cmd) {
                 $cmd = trim($cmd);
                 if (empty($cmd)) continue;
-                $this->exec($connection, $cmd);
+                $this->exec($connection, $cmd, '部署前命令');
             }
         }
         $sftp = ssh2_sftp($connection);
@@ -48,7 +51,7 @@ class ssh implements DeployInterface
 
             if ($config['uptype'] == '1' && !empty($config['iis_domain'])) {
                 $cert_hash = openssl_x509_fingerprint($fullchain, 'sha1');
-                $this->deploy_iis($connection, $config['iis_domain'], $config['pfx_file'], $config['pfx_pass'], $cert_hash);
+                $this->deploy_iis($connection, $config['iis_domain'], $config['pfx_file'], $config['pfx_pass'] ?? '', $cert_hash);
                 $config['cmd'] = null;
             }
         }
@@ -57,29 +60,33 @@ class ssh implements DeployInterface
             foreach ($cmds as $cmd) {
                 $cmd = trim($cmd);
                 if (empty($cmd)) continue;
-                $this->exec($connection, $cmd);
+                $this->exec($connection, $cmd, '部署后命令');
             }
         }
     }
 
     private function deploy_iis($connection, $domain, $pfx_file, $pfx_pass, $cert_hash)
     {
+        if (($this->config['windows'] ?? '0') != '1') throw new Exception('IIS部署需要启用Windows模式');
+        if (!is_string($cert_hash) || !preg_match('/\A[a-f0-9]{40}\z/iD', $cert_hash)) throw new Exception('无法读取证书指纹');
+        $quote = static fn($value) => "'" . str_replace("'", "''", (string)$value) . "'";
+        $this->secrets[] = (string)$pfx_pass;
         if (!strpos($domain, ':')) {
             $domain .= ':443';
         }
-        $ret = $this->exec($connection, 'netsh http show sslcert hostnameport=' . $domain);
-        if (preg_match('/:\s+(\w{40})/', $ret, $match)) {
+        $binding = $quote('hostnameport=' . $domain);
+        $ret = $this->exec($connection, '& netsh.exe http show sslcert ' . $binding, '查询IIS绑定', true, [0,1]);
+        $exists = preg_match('/:\s+([a-f0-9]{40})/i', $ret, $match);
+        if ($exists) {
             if ($match[1] == $cert_hash) {
                 $this->log('IIS域名 ' . $domain . ' 证书已存在，无需更新');
                 return;
             }
         }
-        $p = '-p ""';
-        if (!empty($pfx_pass)) $p = '-p ' . $pfx_pass;
         if (substr($pfx_file, 0, 1) == '/') $pfx_file = substr($pfx_file, 1);
-        $this->exec($connection, 'certutil ' . $p . ' -importPFX ' . $pfx_file);
-        $this->exec($connection, 'netsh http delete sslcert hostnameport=' . $domain);
-        $this->exec($connection, 'netsh http add sslcert hostnameport=' . $domain . ' certhash=' . $cert_hash . ' certstorename=MY appid=\'{' . $this->uuid() . '}\'');
+        $this->exec($connection, '& certutil.exe -p ' . $quote($pfx_pass) . ' -importPFX ' . $quote($pfx_file), '导入IIS证书', true);
+        if ($exists) $this->exec($connection, '& netsh.exe http delete sslcert ' . $binding, '删除旧IIS绑定', true);
+        $this->exec($connection, '& netsh.exe http add sslcert ' . $binding . ' ' . $quote('certhash=' . $cert_hash) . ' certstorename=MY ' . $quote('appid={' . $this->uuid() . '}'), '更新IIS绑定', true);
         $this->log('IIS域名 ' . $domain . ' 证书已更新');
     }
 
@@ -89,31 +96,38 @@ class ssh implements DeployInterface
         return substr($guid, 0, 8) . '-' . substr($guid, 8, 4) . '-4' . substr($guid, 12, 3) . '-' . substr($guid, 16, 4) . '-' . substr($guid, 20, 12);
     }
 
-    private function exec($connection, $cmd)
+    private function exec($connection, string $cmd, string $name = '远程命令', bool $nativePowerShell = false, array $allowed = [0])
     {
-        $this->log('执行命令：' . $cmd);
-        $stream = ssh2_exec($connection, $cmd);
-        $errorStream = ssh2_fetch_stream($stream, SSH2_STREAM_STDERR);
-        if (!$stream || !$errorStream) {
-            throw new Exception('执行命令失败');
-        }
-        stream_set_blocking($stream, true);
-        stream_set_blocking($errorStream, true);
-        $output = stream_get_contents($stream);
-        $errorOutput = stream_get_contents($errorStream);
-        fclose($stream);
-        fclose($errorStream);
-        if (trim($errorOutput)) {
-            if ($this->config['windows'] == '1' && $this->containsGBKChinese($errorOutput)) {
-                $errorOutput = mb_convert_encoding($errorOutput, 'UTF-8', 'GBK');
-            }
-            throw new Exception('执行命令失败：' . trim($errorOutput));
+        $this->log('开始执行：' . $name);
+        $marker = '__DNSMGR_EXIT_' . bin2hex(random_bytes(12)) . '__';
+        if (($this->config['windows'] ?? '0') == '1') {
+            $body = $nativePowerShell ? $cmd : '& $env:ComSpec /D /S /C ' . "'" . str_replace("'", "''", $cmd) . "'";
+            $script = '$ErrorActionPreference=\'Stop\'; $global:LASTEXITCODE=0; try { & { ' . $body . ' }; $dnsmgrCode=[int]$global:LASTEXITCODE } catch { $dnsmgrCode=1 }; [Console]::Out.Write("`n' . $marker . '"+$dnsmgrCode); exit $dnsmgrCode';
+            $command = 'powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ' . base64_encode(mb_convert_encoding($script, 'UTF-16LE', 'UTF-8')) . ' 2>&1';
         } else {
-            if ($this->config['windows'] == '1' && $this->containsGBKChinese($output)) {
-                $output = mb_convert_encoding($output, 'UTF-8', 'GBK');
-            }
-            $this->log('执行命令成功：' . trim($output));
+            $command = 'sh -c ' . escapeshellarg($cmd) . ' 2>&1; dnsmgr_status=$?; printf ' . escapeshellarg("\n" . $marker . '%d') . ' "$dnsmgr_status"';
+        }
+        $stream = ssh2_exec($connection, $command);
+        if (!$stream) throw new Exception($name . '无法启动');
+        $errorStream = null;
+        try {
+            $errorStream = ssh2_fetch_stream($stream, SSH2_STREAM_STDERR);
+            if (!$errorStream) throw new Exception($name . '无法读取命令结果');
+            foreach ([$stream, $errorStream] as $handle) { stream_set_blocking($handle, true); stream_set_timeout($handle, 60); }
+            $output = stream_get_contents($stream, 1048577);
+            $errorOutput = stream_get_contents($errorStream, 65537);
+            if ((stream_get_meta_data($stream)['timed_out'] ?? false) || (stream_get_meta_data($errorStream)['timed_out'] ?? false)) throw new Exception($name . '执行超时，请核实远端状态');
+            if (!is_string($output) || strlen($output) > 1048576 || strlen((string)$errorOutput) > 65536) throw new Exception($name . '输出超过安全上限，请核实远端状态');
+            if (!preg_match('/\r?\n' . preg_quote($marker, '/') . '([0-9]+)\z/D', $output, $match)) throw new Exception($name . '未取得退出状态，请核实远端状态');
+            if (!in_array((int)$match[1], $allowed, true)) throw new Exception($name . '执行失败（退出码' . (int)$match[1] . '），请在服务器检查命令');
+            $output = substr($output, 0, -strlen($match[0]));
+            if (($this->config['windows'] ?? '0') == '1' && $this->containsGBKChinese($output)) $output = mb_convert_encoding($output, 'UTF-8', 'GBK');
+            // Output can contain arbitrary credentials echoed by a remote tool.
+            $this->log($name . '执行成功');
             return $output;
+        } finally {
+            if (is_resource($errorStream)) fclose($errorStream);
+            fclose($stream);
         }
     }
 
@@ -166,7 +180,7 @@ class ssh implements DeployInterface
 
     private function getPublicKey($privateKey)
     {
-        $res = openssl_pkey_get_private($privateKey);
+        $res = openssl_pkey_get_private($privateKey, (string)($this->config['passphrase'] ?? ''));
         if (!$res) {
             throw new Exception('加载私钥失败');
         }
@@ -199,7 +213,7 @@ class ssh implements DeployInterface
     private function log($txt)
     {
         if ($this->logger) {
-            call_user_func($this->logger, $txt);
+            call_user_func($this->logger, \app\lib\SensitiveLog::filter((string)$txt, $this->secrets));
         }
     }
 

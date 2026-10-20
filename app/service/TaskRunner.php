@@ -165,11 +165,6 @@ class TaskRunner
             // Keep the previous effective state, so the next check retries this switch.
             return false;
         }
-        if ($row['type'] == 2) {
-            $value = $action == 1 ? $row['backup_value'] : $row['main_value'];
-            $newId = \app\lib\AutomaticDnsTarget::afterUpdate($dns, $drow, $row['rr'], $value, $recordinfo['Line']);
-            if ($newId !== null) \app\lib\AutomaticDnsTarget::retarget($this->db(), (int)$row['did'], (string)$row['recordid'], $newId);
-        }
         $nextStatus = $row['type'] == 3 ? ($action == 2 ? 1 : 0) : ($action == 1 ? 1 : 0);
         $this->db()->name('dmtask')->where('id', $row['id'])->update(['status' => $nextStatus, 'errcount' => 0, 'switchtime' => time()]);
         $row['status'] = $nextStatus;

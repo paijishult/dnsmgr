@@ -195,7 +195,8 @@ class CertDeployService
 
     private function saveLog($txt)
     {
-        $txt = \app\lib\SensitiveLog::filter((string)$txt);
+        $config = json_decode((string)($this->task['config'] ?? '{}'), true);
+        $txt = \app\lib\SensitiveLog::filter((string)$txt, \app\lib\SensitiveLog::secrets(is_array($config) ? $config : []));
         if (empty($this->task['processid'])) return;
         if (!is_dir(app()->getRuntimePath() . 'log')) mkdir(app()->getRuntimePath() . 'log', 0750, true);
         $file_name = app()->getRuntimePath() . 'log/' . $this->task['processid'] . '.log';

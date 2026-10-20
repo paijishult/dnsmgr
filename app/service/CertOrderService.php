@@ -65,7 +65,7 @@ class CertOrderService
     {
         $this->lockOrder();
         try {
-            if ((int)$this->order['status'] === 3) return 3;
+            if ((int)$this->order['status'] === 3) { $this->delDns(); return 3; }
             if ((int)$this->order['status'] === 4) throw new Exception('证书已吊销', 102);
             if (!$isManual && !empty($this->order['retrytime']) && strtotime($this->order['retrytime']) > time()) throw new Exception('尚未到达重试时间', 102);
             if ($this->order['retry2'] >= 3 && !$isManual) {
@@ -443,7 +443,7 @@ class CertOrderService
         try {
             if ($this->db->name('cert_deploy')->where('oid', $this->order['id'])->count()) throw new Exception('该证书关联了自动部署任务，无法删除');
             $this->cancel();
-            $this->delDns();
+            $this->delDns(true);
             $this->db->startTrans();
             try {
                 $this->db->name('cert_domain')->where('oid', $this->order['id'])->delete();
@@ -473,15 +473,25 @@ class CertOrderService
     }
 
     //删除DNS记录
-    public function delDns()
+    public function delDns(bool $strict = false): bool
     {
-        if (empty($this->dnsList)) return;
         try {
             CertDnsUtils::delDns($this->dnsList, function ($txt) {
                 $this->saveLog($txt);
             }, true, (int)$this->order['id']);
+            if (str_starts_with((string)($this->order['error'] ?? ''), 'DNS清理待重试：')) {
+                $this->db->name('cert_order')->where('id', $this->order['id'])->update(['error'=>null]);
+                $this->order['error'] = null;
+            }
+            return true;
         } catch (\Throwable $e) {
-            $this->saveLog('[Error] ' . $e->getMessage());
+            $error = 'DNS清理待重试：' . \app\lib\SensitiveLog::filter($e->getMessage());
+            $this->saveLog('[Error] ' . $error);
+            if (in_array((int)$this->order['status'], [3,4], true)) {
+                $this->db->name('cert_order')->where('id', $this->order['id'])->update(['error'=>mb_substr($error,0,300)]);
+            }
+            if ($strict) throw new Exception('验证记录尚未清理，已保留订单，请修复DNS权限或域名绑定后重试', 102, $e);
+            return false;
         }
     }
 

@@ -14,6 +14,7 @@ namespace app\lib {
 }
 namespace {
     require __DIR__.'/../app/lib/RecordGuard.php';
+    require __DIR__.'/../app/lib/AutomaticDnsTarget.php';
     require __DIR__.'/../app/lib/GuardedDns.php';
     require __DIR__.'/../app/service/DnsChangeService.php';
     require __DIR__.'/../app/service/TaskLockService.php';

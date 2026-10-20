@@ -562,10 +562,9 @@ class Cert extends BaseController
             if ($this->request->isApi && !$processid && input('post.id/d')) {
                 $processid = Db::name('cert_order')->where('id', input('post.id/d'))->value('processid');
             }
-            if ($this->request->isApi && api_domains() !== null) {
-                $oid = Db::name('cert_order')->where('processid', (string)$processid)->value('id');
-                if (!$oid || !$this->apiOrderAllowed($oid)) return json(['code' => -1, 'msg' => '日志文件不存在']);
-            }
+            if (!is_string($processid)) return json(['code' => -1, 'msg' => '日志文件不存在']);
+            $oid = Db::name('cert_order')->where('processid', $processid)->value('id');
+            if (!$oid || ($this->request->isApi && !$this->apiOrderAllowed($oid))) return json(['code' => -1, 'msg' => '日志文件不存在']);
             $file = $this->getProcessLogFile($processid);
             if ($file === false) return json(['code' => -1, 'msg' => '日志文件不存在']);
             return json(['code' => 0, 'data' => $this->filterLog(file_get_contents($file)), 'time' => filemtime($file)]);
@@ -926,13 +925,14 @@ class Cert extends BaseController
             if ($this->request->isApi && !$processid && input('post.id/d')) {
                 $processid = Db::name('cert_deploy')->where('id', input('post.id/d'))->value('processid');
             }
-            if ($this->request->isApi && api_domains() !== null) {
-                $oid = Db::name('cert_deploy')->where('processid', (string)$processid)->value('oid');
-                if (!$oid || !$this->apiOrderAllowed($oid)) return json(['code' => -1, 'msg' => '日志文件不存在']);
-            }
+            if (!is_string($processid)) return json(['code' => -1, 'msg' => '日志文件不存在']);
+            $task = Db::name('cert_deploy')->where('processid', $processid)->find();
+            if (!$task || ($this->request->isApi && !$this->apiOrderAllowed($task['oid']))) return json(['code' => -1, 'msg' => '日志文件不存在']);
             $file = $this->getProcessLogFile($processid);
             if ($file === false) return json(['code' => -1, 'msg' => '日志文件不存在']);
-            return json(['code' => 0, 'data' => $this->filterLog(file_get_contents($file)), 'time' => filemtime($file)]);
+            $config = json_decode((string)$task['config'], true);
+            $secrets = \app\lib\SensitiveLog::secrets(is_array($config) ? $config : []);
+            return json(['code' => 0, 'data' => $this->filterLog(file_get_contents($file), $secrets), 'time' => filemtime($file)]);
         } elseif ($action == 'operation') {
             $ids = input('post.ids');
             if (!is_array($ids) || empty($ids)) return json(['code' => -1, 'msg' => '请选择要操作的任务']);
@@ -1349,9 +1349,9 @@ class Cert extends BaseController
     /**
      * 过滤日志中可能出现的私钥、密码等敏感信息
      */
-    private function filterLog($content)
+    private function filterLog($content, array $secrets = [])
     {
-        return \app\lib\SensitiveLog::filter((string)$content);
+        return \app\lib\SensitiveLog::filter((string)$content, $secrets);
     }
 
     private function apiLog($action, $data)

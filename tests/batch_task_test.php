@@ -27,6 +27,7 @@ namespace app\lib {
 namespace {
     require_once __DIR__ . '/../app/lib/ApiKeyHelper.php';
     require_once __DIR__ . '/../app/lib/RecordGuard.php';
+    require_once __DIR__ . '/../app/lib/AutomaticDnsTarget.php';
     require_once __DIR__ . '/../app/service/TaskLockService.php';
     require_once __DIR__ . '/../app/service/DnsChangeService.php';
     require_once __DIR__ . '/../app/service/BatchTaskService.php';

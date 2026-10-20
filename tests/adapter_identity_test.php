@@ -51,4 +51,8 @@ $ta=new app\lib\dns\technitium(['url'=>'http://192.0.2.3:5380','token'=>'fixture
 $target=$ta->getDomainRecords()['list'][0]['RecordId'];$tb->getDomainRecords();$GLOBALS['adapter_state']['192.0.2.3']=array_reverse($GLOBALS['adapter_state']['192.0.2.3']);$GLOBALS['adapter_state']['192.0.2.3'][1]['rData']=array_reverse($GLOBALS['adapter_state']['192.0.2.3'][1]['rData'],true);
 $fresh=$ta->getDomainRecords()['list'];identityCheck($fresh[1]['RecordId']===$target,'Technitium IDs survive record and JSON property reorder');
 identityCheck($ta->setDomainRecordStatus($target,'0'),'Technitium stable target can be paused');$change=end($GLOBALS['adapter_writes'])[1];identityCheck($change['domain']==='www.example.com'&&$change['ipAddress']==='192.0.2.31','Technitium targets the same host and original value');
+$connection=new IdentityConnection();$connection->rows=['dmtask'=>[['did'=>1,'recordid'=>$target]],'sctask'=>[['did'=>1,'recordid'=>$target]]];
+$GLOBALS['adapter_state']['192.0.2.3'][1]['rData']['ipAddress']='192.0.2.43';$fresh=$ta->getDomainRecords()['list'];
+app\lib\AutomaticDnsTarget::synchronize($ta,['id'=>1,'name'=>'example.com'],$target,['name'=>'www','type'=>'A','value'=>'192.0.2.43','line'=>'default'],$fresh,$connection);
+identityCheck($connection->rows['dmtask'][0]['recordid']===$fresh[1]['RecordId']&&$connection->rows['sctask'][0]['recordid']===$fresh[1]['RecordId'],'Technitium shares the form/worker synchronization hook');
 echo 'Adapter identity isolation: '.$GLOBALS['identity_checks']." checks passed\n";

@@ -73,7 +73,12 @@ class GuardedDns
                 (new DnsChangeService($this->connection))->snapshot($this->domain, $this->dns, '解析变更前自动快照');
                 $this->snapshotted = true;
             }
-            return $this->dns->$method(...$args);
+            $result = $this->dns->$method(...$args);
+            if ($result !== false && $result !== null && $method === 'updateDomainRecord' && AutomaticDnsTarget::usesContentId($this->dns)) {
+                $operation = ['name'=>$args[1], 'type'=>$args[2], 'value'=>$args[3], 'line'=>$args[4] ?? 'default'];
+                AutomaticDnsTarget::synchronize($this->dns, $this->domain, (string)$args[0], $operation, RecordGuard::all($this->dns, $this->domain['name']), $this->connection);
+            }
+            return $result;
         } catch (\Throwable $e) {
             $this->error = $e->getMessage();
             return false;
