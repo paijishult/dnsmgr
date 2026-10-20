@@ -11,7 +11,13 @@ namespace app\lib\deploy {
             $text=$GLOBALS['command_no_marker']?'':"\n".$marker[0].$GLOBALS['command_exit'];
             if(!empty($GLOBALS['command_oversize']))$text=str_repeat('x',1048577).$text;
         }else{
-            $process=proc_open(PHP_OS_FAMILY==='Windows'?['cmd.exe','/D','/S','/C',$command]:['sh','-c',$command],[1=>['pipe','w'],2=>['pipe','w']],$pipes);
+            if(PHP_OS_FAMILY==='Windows'){
+                if(!preg_match('/-EncodedCommand ([A-Za-z0-9+\/=]+)/',$command,$encoded))throw new \RuntimeException('Expected encoded PowerShell transport');
+                // Execute the generated transport directly; PHP's Windows argv
+                // quoting differs from a remote SSH shell's command-line parser.
+                $argv=['powershell.exe','-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',$encoded[1]];
+            }else $argv=['sh','-c',$command];
+            $process=proc_open($argv,[1=>['pipe','w'],2=>['pipe','w']],$pipes,null,null,['bypass_shell'=>true]);
             if(!is_resource($process))throw new \RuntimeException('Cannot start isolated shell');
             $text=stream_get_contents($pipes[1]);$error=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$status=proc_close($process);
             if(PHP_OS_FAMILY==='Windows'&&($error!==''||!preg_match('/__DNSMGR_EXIT_[a-f0-9]+__[0-9]+(?:\r?\n)?\z/D',$text)))fwrite(STDERR,json_encode(['test_transport_exit'=>$status,'stdout64'=>base64_encode(substr($text,-800)),'stderr64'=>base64_encode(substr($error,-800))]).PHP_EOL);

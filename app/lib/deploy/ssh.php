@@ -101,8 +101,10 @@ class ssh implements DeployInterface
         $this->log('开始执行：' . $name);
         $marker = '__DNSMGR_EXIT_' . bin2hex(random_bytes(12)) . '__';
         if (($this->config['windows'] ?? '0') == '1') {
-            $body = $nativePowerShell ? $cmd : '& $env:ComSpec /D /S /C ' . "'" . str_replace("'", "''", $cmd . ' 2>&1') . "'";
-            $script = '$ErrorActionPreference=\'Stop\'; $global:LASTEXITCODE=0; try { & { ' . $body . ' } | Out-Host; $dnsmgrCode=[int]$global:LASTEXITCODE } catch { $dnsmgrCode=1 }; [Console]::Out.Write("`n' . $marker . '"+$dnsmgrCode); exit $dnsmgrCode';
+            $body = $nativePowerShell ? $cmd : '& $env:ComSpec /D /S /C ' . "'" . str_replace("'", "''", $cmd) . "' 2>&1";
+            // Native cmd stderr can contain warnings even when the command exits0.
+            $preference = $nativePowerShell ? 'Stop' : 'Continue';
+            $script = '$ErrorActionPreference=\'' . $preference . '\'; $global:LASTEXITCODE=0; try { & { ' . $body . ' } | Out-Host; $dnsmgrCode=[int]$global:LASTEXITCODE } catch { $dnsmgrCode=1 }; [Console]::Out.Write("`n' . $marker . '"+$dnsmgrCode); exit $dnsmgrCode';
             $command = 'powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ' . base64_encode(mb_convert_encoding($script, 'UTF-16LE', 'UTF-8')) . ' 2>&1';
         } else {
             $command = 'sh -c ' . escapeshellarg($cmd) . ' 2>&1; dnsmgr_status=$?; printf ' . escapeshellarg("\n" . $marker . '%d') . ' "$dnsmgr_status"';
