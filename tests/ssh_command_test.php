@@ -50,12 +50,19 @@ namespace {
     if($windows&&!function_exists('post_message_to_js')){
         $output=$exec->invoke($win,null,"[Console]::Out.Write('literal with spaces; & quote'' stays data')",'PowerShell参数验证',true);
         commandCheck($output==="literal with spaces; & quote' stays data",'A real PowerShell receives literals without command injection');
+        $fixture=tempnam(sys_get_temp_dir(),'ssh-argv-');file_put_contents($fixture,'<?php echo json_encode(array_slice($argv,1));');
+        try{
+            $arguments=['',"fixture' ; & %PATH% ! $ literal",'a "quoted" password','C:\\folder with spaces\\','尾部\\'];
+            $script=(new ReflectionMethod($win,'windowsProgram'))->invoke(null,PHP_BINARY,array_merge([$fixture],$arguments));
+            $output=$exec->invoke($win,null,$script,'Windows原生参数验证',true);
+            commandCheck(json_decode($output,true)===$arguments,'Real Windows argv preserves empty arguments, quotes, metacharacters and trailing backslashes');
+        }finally{unlink($fixture);}
     }
     $GLOBALS['command_fake']=true;
     {
         $password="fixture';&echo PfxOnly42";(new ReflectionMethod($win,'deploy_iis'))->invoke($win,null,'example.com',"/C:/cert's folder/cert.pfx",$password,str_repeat('a',40));
         $script='';foreach($GLOBALS['command_sent'] as $sent)if(preg_match('/-EncodedCommand ([A-Za-z0-9+\/=]+)/',$sent,$m))$script.=mb_convert_encoding(base64_decode($m[1]),'UTF-8','UTF-16LE');
-        commandCheck(str_contains($script,"'fixture'';&echo PfxOnly42'")&&str_contains($script,"'C:/cert''s folder/cert.pfx'"),'IIS passwords and paths are quoted as data');
+        commandCheck(str_contains($script,"fixture'';&echo PfxOnly42")&&str_contains($script,"C:/cert''s folder/cert.pfx"),'IIS passwords and paths are quoted as data');
         commandCheck(!str_contains(implode("\n",$logs),'PfxOnly42'),'IIS command arguments never enter logs');
     }
     $GLOBALS['command_no_marker']=true;commandReject(fn()=>$exec->invoke($client,null,'fixture'),'A transport without an exit receipt fails closed');$GLOBALS['command_no_marker']=false;

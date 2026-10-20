@@ -69,13 +69,12 @@ class ssh implements DeployInterface
     {
         if (($this->config['windows'] ?? '0') != '1') throw new Exception('IIS部署需要启用Windows模式');
         if (!is_string($cert_hash) || !preg_match('/\A[a-f0-9]{40}\z/iD', $cert_hash)) throw new Exception('无法读取证书指纹');
-        $quote = static fn($value) => "'" . str_replace("'", "''", (string)$value) . "'";
         $this->secrets[] = (string)$pfx_pass;
         if (!strpos($domain, ':')) {
             $domain .= ':443';
         }
-        $binding = $quote('hostnameport=' . $domain);
-        $ret = $this->exec($connection, '& netsh.exe http show sslcert ' . $binding, '查询IIS绑定', true, [0,1]);
+        $binding = 'hostnameport=' . $domain;
+        $ret = $this->exec($connection, self::windowsProgram('netsh.exe', ['http','show','sslcert',$binding]), '查询IIS绑定', true, [0,1]);
         $exists = preg_match('/:\s+([a-f0-9]{40})/i', $ret, $match);
         if ($exists) {
             if ($match[1] == $cert_hash) {
@@ -84,10 +83,32 @@ class ssh implements DeployInterface
             }
         }
         if (substr($pfx_file, 0, 1) == '/') $pfx_file = substr($pfx_file, 1);
-        $this->exec($connection, '& certutil.exe -p ' . $quote($pfx_pass) . ' -importPFX ' . $quote($pfx_file), '导入IIS证书', true);
-        if ($exists) $this->exec($connection, '& netsh.exe http delete sslcert ' . $binding, '删除旧IIS绑定', true);
-        $this->exec($connection, '& netsh.exe http add sslcert ' . $binding . ' ' . $quote('certhash=' . $cert_hash) . ' certstorename=MY ' . $quote('appid={' . $this->uuid() . '}'), '更新IIS绑定', true);
+        $this->exec($connection, self::windowsProgram('certutil.exe', ['-p',(string)$pfx_pass,'-importPFX',$pfx_file]), '导入IIS证书', true);
+        if ($exists) $this->exec($connection, self::windowsProgram('netsh.exe', ['http','delete','sslcert',$binding]), '删除旧IIS绑定', true);
+        $this->exec($connection, self::windowsProgram('netsh.exe', ['http','add','sslcert',$binding,'certhash='.$cert_hash,'certstorename=MY','appid={'.$this->uuid().'}']), '更新IIS绑定', true);
         $this->log('IIS域名 ' . $domain . ' 证书已更新');
+    }
+
+    private static function windowsProgram(string $program, array $arguments): string
+    {
+        // Windows PowerShell5 drops empty native arguments. Use ProcessStartInfo
+        // and the Windows argv quoting rules, without passing through cmd.exe.
+        $quoteArgument = static function (string $argument): string {
+            $result = '"'; $slashes = 0;
+            for ($i = 0; $i < strlen($argument); $i++) {
+                if ($argument[$i] === '\\') { $slashes++; continue; }
+                $result .= str_repeat('\\', $argument[$i] === '"' ? 2 * $slashes + 1 : $slashes) . $argument[$i];
+                $slashes = 0;
+            }
+            return $result . str_repeat('\\', 2 * $slashes) . '"';
+        };
+        $quoteScript = static fn($value) => "'" . str_replace("'", "''", $value) . "'";
+        $args = implode(' ', array_map($quoteArgument, $arguments));
+        return '$dnsmgrProcess=New-Object System.Diagnostics.Process; $dnsmgrProcess.StartInfo.FileName=' . $quoteScript($program)
+            . '; $dnsmgrProcess.StartInfo.Arguments=' . $quoteScript($args)
+            . '; $dnsmgrProcess.StartInfo.UseShellExecute=$false; $dnsmgrProcess.StartInfo.RedirectStandardOutput=$true; $dnsmgrProcess.StartInfo.RedirectStandardError=$true;'
+            . ' if (!$dnsmgrProcess.Start()) { throw \'process did not start\' }; $dnsmgrOut=$dnsmgrProcess.StandardOutput.ReadToEndAsync(); $dnsmgrErr=$dnsmgrProcess.StandardError.ReadToEndAsync();'
+            . ' $dnsmgrProcess.WaitForExit(); [Console]::Out.Write($dnsmgrOut.GetAwaiter().GetResult()); [Console]::Out.Write($dnsmgrErr.GetAwaiter().GetResult()); $global:LASTEXITCODE=$dnsmgrProcess.ExitCode; $dnsmgrProcess.Dispose();';
     }
 
     private function uuid()
