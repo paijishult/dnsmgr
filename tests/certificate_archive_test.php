@@ -14,6 +14,9 @@ archiveCheck(!str_contains(SensitiveLog::filter('Authorization: Bearer fixture-h
 foreach(['certutil -p FixturePfxOnly42 -importPFX C:/cert.pfx','CERTUTIL.EXE -p "fixture pass with spaces" -importPFX C:/cert.pfx'] as $oldLog)archiveCheck(!str_contains(SensitiveLog::filter($oldLog),' -p '),'Historical positional certutil passwords are hidden');
 $secret="fixture\npass \"quoted\"";$filtered=SensitiveLog::filter('native output '.$secret.' '.json_encode($secret),SensitiveLog::secrets(['pfx_pass'=>$secret]));
 archiveCheck(!str_contains($filtered,'quoted')&&!str_contains($filtered,'fixture'),'Known task secrets are masked even in multi-line and JSON-escaped output');
+$legacy="开始部署\n执行命令：sshpass -p LegacyUnknownFixture42 tool\n执行命令成功：\nUnknownOutputFixture84";
+$filtered=SensitiveLog::filter($legacy);archiveCheck(!str_contains($filtered,'LegacyUnknownFixture42')&&!str_contains($filtered,'UnknownOutputFixture84'),'An entire legacy SSH body is hidden even for unknown command and multiline-output credentials');
+archiveCheck(SensitiveLog::filter('部署后命令执行成功')==='部署后命令执行成功','New safe step-only SSH logs remain readable');
 $directory=SecureFiles::temporaryDirectory();
 try {
     SecureFiles::write($directory.'/private.key','fixture',0600);SecureFiles::write($directory.'/private.key','replacement',0600);

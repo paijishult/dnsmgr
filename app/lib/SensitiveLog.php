@@ -6,6 +6,9 @@ class SensitiveLog
 {
     public static function filter(string $text, array $secrets = []): string
     {
+        // Old SSH commands and multi-line stdout can contain credentials which
+        // were never stored as a named password field. Do not expose that body.
+        if (preg_match('/(?:\A|[\r\n])执行命令(?:成功)?(?:：|:)/', $text)) return '[旧版SSH命令日志已隐藏，请重新执行任务查看安全日志]';
         $secrets = array_values(array_filter($secrets, static fn($v) => is_string($v) && $v !== ''));
         usort($secrets, static fn($a, $b) => strlen($b) <=> strlen($a));
         foreach ($secrets as $secret) $text = str_replace([$secret, substr(json_encode($secret, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE), 1, -1)], '******', $text);
