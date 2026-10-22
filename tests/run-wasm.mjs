@@ -10,7 +10,7 @@ const wasmPath = require.resolve('@php-wasm/node');
 const { loadNodeRuntime } = await import(pathToFileURL(wasmPath.replace(/\.cjs$/, '.js')));
 const universalPath = require.resolve('@php-wasm/universal', { paths: [path.dirname(wasmPath)] });
 const { PHP } = await import(pathToFileURL(universalPath.replace(/\.cjs$/, '.js')));
-const php = new PHP(await loadNodeRuntime(process.env.PHP_VERSION || '8.3', { emscriptenOptions: { processId: 1 } }));
+const php = new PHP(await loadNodeRuntime(process.env.PHP_VERSION || '8.3.36', { emscriptenOptions: { processId: 1 } }));
 const phpFiles = [];
 function copy(from, to) {
   if (!php.isDir(to)) php.mkdir(to);
