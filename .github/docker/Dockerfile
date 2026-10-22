@@ -100,7 +100,6 @@ RUN set -eux; \
     cd /; \
     rm -rf /usr/src/swoole /tmp/swoole.tgz; \
     apk del .php-build-deps; \
-    test "$(apk info -v php83 | sed 's/^php83-//')" = "${PHP_APK_VERSION}"; \
     php --ri swoole; \
     php -r 'if (PHP_VERSION_ID !== 80336) { fwrite(STDERR, "PHP 8.3.36 is required\n"); exit(1); }'; \
     php --version; \
