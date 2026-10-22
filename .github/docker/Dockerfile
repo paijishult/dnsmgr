@@ -77,7 +77,6 @@ RUN set -eux; \
     ln -sf /usr/bin/php83 /usr/local/bin/php; \
     ln -sf /usr/bin/phpize83 /usr/local/bin/phpize; \
     ln -sf /usr/bin/php-config83 /usr/local/bin/php-config; \
-    ln -sf /usr/sbin/php-fpm83 /usr/local/sbin/php-fpm; \
     curl -fsSL \
       "https://pecl.php.net/get/swoole-${SWOOLE_VERSION}.tgz" \
       -o /tmp/swoole.tgz; \
