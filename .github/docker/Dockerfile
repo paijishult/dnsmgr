@@ -1,10 +1,13 @@
-FROM php:8.3.36-fpm-alpine3.24
+FROM alpine:edge
 
 # Setup document root
 WORKDIR /app/www
 
+ARG PHP_APK_VERSION=8.3.36-r0
 ARG SWOOLE_VERSION=6.2.2
 ARG SSH2_VERSION=1.4.1
+ENV PHP_INI_DIR=/etc/php83
+
 RUN set -eux; \
     apk add --no-cache \
       bash \
@@ -24,9 +27,36 @@ RUN set -eux; \
       freetype \
       libjpeg-turbo \
       libpng \
-      supervisor; \
+      supervisor \
+      php83=${PHP_APK_VERSION} \
+      php83-fpm=${PHP_APK_VERSION} \
+      php83-ctype=${PHP_APK_VERSION} \
+      php83-curl=${PHP_APK_VERSION} \
+      php83-dom=${PHP_APK_VERSION} \
+      php83-fileinfo=${PHP_APK_VERSION} \
+      php83-ftp=${PHP_APK_VERSION} \
+      php83-gd=${PHP_APK_VERSION} \
+      php83-gettext=${PHP_APK_VERSION} \
+      php83-iconv=${PHP_APK_VERSION} \
+      php83-intl=${PHP_APK_VERSION} \
+      php83-mbstring=${PHP_APK_VERSION} \
+      php83-mysqli=${PHP_APK_VERSION} \
+      php83-opcache=${PHP_APK_VERSION} \
+      php83-openssl=${PHP_APK_VERSION} \
+      php83-pcntl=${PHP_APK_VERSION} \
+      php83-pdo=${PHP_APK_VERSION} \
+      php83-pdo_mysql=${PHP_APK_VERSION} \
+      php83-phar=${PHP_APK_VERSION} \
+      php83-posix=${PHP_APK_VERSION} \
+      php83-session=${PHP_APK_VERSION} \
+      php83-simplexml=${PHP_APK_VERSION} \
+      php83-sockets=${PHP_APK_VERSION} \
+      php83-tokenizer=${PHP_APK_VERSION} \
+      php83-xml=${PHP_APK_VERSION} \
+      php83-zip=${PHP_APK_VERSION}; \
     apk add --no-cache --virtual .php-build-deps \
-      $PHPIZE_DEPS \
+      autoconf \
+      build-base \
       c-ares-dev \
       brotli-dev \
       zstd-dev \
@@ -35,24 +65,28 @@ RUN set -eux; \
       pcre2-dev \
       zlib-dev \
       linux-headers \
-      gettext-dev \
+      libxml2-dev \
       libssh2-dev \
       libzip-dev \
       icu-dev \
       freetype-dev \
       libjpeg-turbo-dev \
-      libpng-dev; \
-    docker-php-ext-configure gd --with-freetype --with-jpeg; \
-    docker-php-ext-install -j"$(nproc)" gd gettext intl mysqli opcache pdo_mysql sockets zip; \
+      libpng-dev \
+      php83-dev=${PHP_APK_VERSION} \
+      php83-pear=${PHP_APK_VERSION}; \
+    ln -sf /usr/bin/php83 /usr/local/bin/php; \
+    ln -sf /usr/bin/phpize83 /usr/local/bin/phpize; \
+    ln -sf /usr/bin/php-config83 /usr/local/bin/php-config; \
+    ln -sf /usr/sbin/php-fpm83 /usr/local/sbin/php-fpm; \
     curl -fsSL \
       "https://pecl.php.net/get/swoole-${SWOOLE_VERSION}.tgz" \
       -o /tmp/swoole.tgz; \
     mkdir -p /usr/src/swoole; \
     tar -xzf /tmp/swoole.tgz -C /usr/src/swoole --strip-components=1; \
     cd /usr/src/swoole; \
-    phpize; \
+    /usr/bin/phpize83; \
     ./configure \
-      --with-php-config=/usr/local/bin/php-config \
+      --with-php-config=/usr/bin/php-config83 \
       --with-openssl-dir=/usr \
       --enable-mysqlnd \
       --enable-sockets \
@@ -62,11 +96,12 @@ RUN set -eux; \
       --enable-zstd; \
     make -j"$(nproc)"; \
     make install; \
-    pecl install "ssh2-${SSH2_VERSION}"; \
-    docker-php-ext-enable swoole ssh2; \
+    pecl83 install "ssh2-${SSH2_VERSION}"; \
+    printf 'extension=swoole.so\nextension=ssh2.so\n' > /etc/php83/conf.d/50-pecl.ini; \
     cd /; \
     rm -rf /usr/src/swoole /tmp/swoole.tgz; \
     apk del .php-build-deps; \
+    test "$(apk info -v php83 | sed 's/^php83-//')" = "${PHP_APK_VERSION}"; \
     php --ri swoole; \
     php -r 'if (PHP_VERSION_ID !== 80336) { fwrite(STDERR, "PHP 8.3.36 is required\n"); exit(1); }'; \
     php --version; \
@@ -80,7 +115,6 @@ RUN rm -f /etc/nginx/http.d/default.conf
 COPY .github/docker/config/nginx.conf /etc/nginx/nginx.conf
 
 # Configure PHP-FPM
-ENV PHP_INI_DIR=/usr/local/etc/php
 COPY .github/docker/config/fpm-pool.conf ${PHP_INI_DIR}/php-fpm.d/www.conf
 COPY .github/docker/config/php.ini ${PHP_INI_DIR}/conf.d/custom.ini
 
