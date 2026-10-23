@@ -24,9 +24,18 @@ try {
     if (phpversion('swoole') !== '6.2.2' || phpversion('ssh2') !== '1.5.0') {
         throw new RuntimeException('Unexpected Swoole/SSH2 extension version');
     }
-    if (!class_exists('Co') || !class_exists(Swoole\ConnectionPool::class)
-        || !defined('SWOOLE_HOOK_PDO_MYSQL')) {
-        throw new RuntimeException('Missing Swoole coroutine/MySQL support');
+    foreach (['Co', Swoole\ConnectionPool::class] as $class) {
+        if (!class_exists($class)) {
+            throw new RuntimeException('Missing Swoole runtime class: ' . $class);
+        }
+    }
+    // MySQL uses mysqlnd's socket hooks; Swoole has no PDO_MYSQL hook constant.
+    // Reflection info is text in CLI and an HTML table in FPM.
+    ob_start();
+    (new ReflectionExtension('swoole'))->info();
+    $swooleInfo = preg_replace('/<[^>]*>/', ' ', ob_get_clean());
+    if (!preg_match('/\bmysqlnd\s*(?:=>\s*)?enabled\b/i', $swooleInfo)) {
+        throw new RuntimeException('Missing Swoole mysqlnd support');
     }
 
     $database = new PDO('sqlite::memory:');
