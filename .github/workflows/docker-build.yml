@@ -96,6 +96,7 @@ jobs:
           cache-to: type=gha,scope=dnsmgr-${{ matrix.arch }},mode=max
 
       - name: Check container startup and installer
+        shell: bash
         env:
           IMAGE_TAG: dnsmgr-smoke:${{ github.sha }}
         run: |
