@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { loadCheckedPHPRuntime } from './php-wasm-runtime.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const moduleDir = process.env.PHP_WASM_NODE_MODULE_DIR;
 const require = createRequire(moduleDir ? path.join(moduleDir, 'loader.cjs') : import.meta.url);
@@ -10,7 +11,7 @@ const wasmPath = require.resolve('@php-wasm/node');
 const { loadNodeRuntime } = await import(pathToFileURL(wasmPath.replace(/\.cjs$/, '.js')));
 const universalPath = require.resolve('@php-wasm/universal', { paths: [path.dirname(wasmPath)] });
 const { PHP } = await import(pathToFileURL(universalPath.replace(/\.cjs$/, '.js')));
-const php = new PHP(await loadNodeRuntime(process.env.PHP_VERSION || '8.3.36', { emscriptenOptions: { processId: 1 } }));
+const php = await loadCheckedPHPRuntime({ PHP, loadNodeRuntime });
 const phpFiles = [];
 function copy(from, to) {
   if (!php.isDir(to)) php.mkdir(to);

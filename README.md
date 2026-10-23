@@ -120,6 +120,8 @@ flowchart LR
 
 本分支镜像：`ghcr.io/paijishult/dnsmgr`，提供 `latest` 与 `sha-<提交前7位>` 标签。
 
+容器使用 Alpine 3.24 稳定版的官方 PHP `8.3.36-r0` 包，保留 Sodium、SQLite 和 XML 等扩展；发布前会在 amd64、arm64 上分别验证 CLI 与 PHP-FPM 的版本和运行能力。
+
 ```bash
 docker run -d \
   --name dnsmgr \

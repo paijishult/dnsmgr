@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 import {fileURLToPath, pathToFileURL} from 'node:url';
+import {loadCheckedPHPRuntime} from './php-wasm-runtime.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const vendor=process.env.DNSMGR_COMPOSER_VENDOR||path.join(root,'vendor');
 const output=process.env.DNSMGR_PAGE_FIXTURES||path.join(process.env.TMPDIR||'/tmp','dnsmgr-pages');
@@ -11,7 +12,7 @@ const require=createRequire(process.env.PHP_WASM_NODE_MODULE_DIR?path.join(proce
 const wasmPath=require.resolve('@php-wasm/node');
 const {loadNodeRuntime}=await import(pathToFileURL(wasmPath.replace(/\.cjs$/,'.js')));
 const {PHP}=await import(pathToFileURL(require.resolve('@php-wasm/universal',{paths:[path.dirname(wasmPath)]}).replace(/\.cjs$/,'.js')));
-const php=new PHP(await loadNodeRuntime(process.env.PHP_VERSION||'8.3.36',{emscriptenOptions:{processId:1}}));
+const php=await loadCheckedPHPRuntime({PHP,loadNodeRuntime});
 function copy(from,to) {
  if(!php.isDir(to))php.mkdir(to);
  for(const entry of fs.readdirSync(from,{withFileTypes:true})) {

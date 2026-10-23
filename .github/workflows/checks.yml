@@ -70,6 +70,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Check optional WASM runner version selection
+        run: node --test tests/php-wasm-runtime.test.mjs
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'

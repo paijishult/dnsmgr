@@ -1,11 +1,11 @@
-FROM alpine:edge
+FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35
 
 # Setup document root
 WORKDIR /app/www
 
 ARG PHP_APK_VERSION=8.3.36-r0
-ARG SWOOLE_VERSION=6.2.2
-ARG SSH2_VERSION=1.4.1
+ARG SWOOLE_APK_VERSION=6.2.2-r0
+ARG SSH2_APK_VERSION=1.5.0-r0
 ENV PHP_INI_DIR=/etc/php83
 
 RUN set -eux; \
@@ -14,19 +14,7 @@ RUN set -eux; \
       curl \
       nginx \
       ca-certificates \
-      c-ares \
-      brotli-libs \
-      zstd-libs \
       openssl \
-      pcre2 \
-      zlib \
-      gettext \
-      libssh2 \
-      libzip \
-      icu-libs \
-      freetype \
-      libjpeg-turbo \
-      libpng \
       supervisor \
       php83=${PHP_APK_VERSION} \
       php83-fpm=${PHP_APK_VERSION} \
@@ -46,64 +34,23 @@ RUN set -eux; \
       php83-pcntl=${PHP_APK_VERSION} \
       php83-pdo=${PHP_APK_VERSION} \
       php83-pdo_mysql=${PHP_APK_VERSION} \
+      php83-pdo_sqlite=${PHP_APK_VERSION} \
       php83-phar=${PHP_APK_VERSION} \
       php83-posix=${PHP_APK_VERSION} \
       php83-session=${PHP_APK_VERSION} \
       php83-simplexml=${PHP_APK_VERSION} \
       php83-sockets=${PHP_APK_VERSION} \
+      php83-sodium=${PHP_APK_VERSION} \
       php83-tokenizer=${PHP_APK_VERSION} \
       php83-xml=${PHP_APK_VERSION} \
-      php83-zip=${PHP_APK_VERSION}; \
-    apk add --no-cache --virtual .php-build-deps \
-      autoconf \
-      build-base \
-      c-ares-dev \
-      brotli-dev \
-      zstd-dev \
-      openssl-dev \
-      curl-dev \
-      pcre2-dev \
-      zlib-dev \
-      linux-headers \
-      libxml2-dev \
-      libssh2-dev \
-      libzip-dev \
-      icu-dev \
-      freetype-dev \
-      libjpeg-turbo-dev \
-      libpng-dev \
-      php83-dev=${PHP_APK_VERSION} \
-      php83-pear=${PHP_APK_VERSION}; \
+      php83-xmlreader=${PHP_APK_VERSION} \
+      php83-xmlwriter=${PHP_APK_VERSION} \
+      php83-zip=${PHP_APK_VERSION} \
+      php83-pecl-swoole=${SWOOLE_APK_VERSION} \
+      php83-pecl-ssh2=${SSH2_APK_VERSION}; \
     ln -sf /usr/bin/php83 /usr/local/bin/php; \
-    ln -sf /usr/bin/phpize83 /usr/local/bin/phpize; \
-    ln -sf /usr/bin/php-config83 /usr/local/bin/php-config; \
-    curl -fsSL \
-      "https://pecl.php.net/get/swoole-${SWOOLE_VERSION}.tgz" \
-      -o /tmp/swoole.tgz; \
-    mkdir -p /usr/src/swoole; \
-    tar -xzf /tmp/swoole.tgz -C /usr/src/swoole --strip-components=1; \
-    cd /usr/src/swoole; \
-    /usr/bin/phpize83; \
-    ./configure \
-      --with-php-config=/usr/bin/php-config83 \
-      --with-openssl-dir=/usr \
-      --enable-mysqlnd \
-      --enable-sockets \
-      --enable-swoole-curl \
-      --enable-cares \
-      --enable-brotli \
-      --enable-zstd; \
-    make -j"$(nproc)"; \
-    make install; \
-    pecl83 install "ssh2-${SSH2_VERSION}"; \
-    printf 'extension=swoole.so\nextension=ssh2.so\n' > /etc/php83/conf.d/50-pecl.ini; \
-    cd /; \
-    rm -rf /usr/src/swoole /tmp/swoole.tgz; \
-    apk del .php-build-deps; \
     php --ri swoole; \
-    php -r 'if (PHP_VERSION_ID !== 80336) { fwrite(STDERR, "PHP 8.3.36 is required\n"); exit(1); }'; \
     php --version; \
-    php -r 'foreach (["swoole", "curl", "pdo_mysql", "openssl", "ssh2", "ftp", "gd", "mbstring", "intl", "sockets"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "Missing extension: $extension\n"); exit(1); } }'; \
     rm -rf /var/cache/apk/* /tmp/*
 
 # Remove default server definition
@@ -128,7 +75,10 @@ RUN composer install -d /usr/src/www --no-interaction --no-dev --no-autoloader -
 
 # Add application（使用本仓库源码构建）
 COPY . /usr/src/www
+COPY .github/docker/verify-runtime.php /tmp/dnsmgr-verify-runtime.php
 RUN composer dump-autoload -d /usr/src/www --no-dev --optimize --no-interaction \
+    && DNSMGR_RUNTIME_APP_ROOT=/usr/src/www php /tmp/dnsmgr-verify-runtime.php \
+    && rm /tmp/dnsmgr-verify-runtime.php \
     && rm -rf /usr/src/www/.github /usr/src/www/.git /usr/src/www/tests /usr/local/bin/composer
 
 RUN adduser -D -s /sbin/nologin -g www www && chown -R www:www /usr/src/www /var/lib/nginx /var/log/nginx
@@ -148,7 +98,7 @@ ENTRYPOINT ["sh", "/entrypoint.sh"]
 EXPOSE 80
 
 # Let supervisord start nginx & php-fpm
-CMD /usr/sbin/crond && /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
+CMD ["/bin/sh", "-c", "/usr/sbin/crond && exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
 
 STOPSIGNAL SIGTERM
 

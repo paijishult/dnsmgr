@@ -102,7 +102,7 @@ jobs:
           test "$(docker inspect --format '{{.Architecture}}' "$IMAGE_TAG")" = '${{ matrix.arch }}'
           docker run --detach --name dnsmgr-smoke --publish 127.0.0.1:18081:80 "$IMAGE_TAG"
           docker exec dnsmgr-smoke nginx -t
-          docker exec dnsmgr-smoke php -r 'if (PHP_VERSION_ID !== 80336) { fwrite(STDERR, "Expected PHP 8.3.36\n"); exit(1); }'
+          docker exec -i dnsmgr-smoke php < .github/docker/verify-runtime.php
           for attempt in $(seq 1 30); do
             if [ "$(docker inspect --format '{{.State.Health.Status}}' dnsmgr-smoke)" = healthy ]; then
               break
@@ -110,6 +110,15 @@ jobs:
             sleep 2
           done
           test "$(docker inspect --format '{{.State.Health.Status}}' dnsmgr-smoke)" = healthy
+          # Verify the web SAPI too; the probe exists only in this disposable container.
+          probe="dnsmgr-runtime-${GITHUB_RUN_ID}.php"
+          trap 'docker exec dnsmgr-smoke rm -f "/app/www/public/$probe"' EXIT
+          docker cp .github/docker/verify-runtime.php "dnsmgr-smoke:/app/www/public/$probe"
+          curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:18081/$probe" \
+            | tee "$RUNNER_TEMP/dnsmgr-runtime.json"
+          jq --exit-status '.php == "8.3.36" and .sapi == "fpm-fcgi" and (.checks | index("application-signature") != null)' "$RUNNER_TEMP/dnsmgr-runtime.json"
+          docker exec dnsmgr-smoke rm "/app/www/public/$probe"
+          trap - EXIT
           curl --fail --silent --show-error --location --max-time 20 http://127.0.0.1:18081/install > "$RUNNER_TEMP/dnsmgr-install.html"
           test -s "$RUNNER_TEMP/dnsmgr-install.html"
           grep -q '安装' "$RUNNER_TEMP/dnsmgr-install.html"
@@ -132,6 +141,9 @@ jobs:
             docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf status "$program" | grep -q RUNNING
             curl --fail --silent --show-error --max-time 10 http://127.0.0.1:18081/install > /dev/null
           done
+          test "$(docker exec dnsmgr-smoke cat /proc/1/comm | tr -d '\r')" = supervisord
+          docker stop --time 15 dnsmgr-smoke
+          test "$(docker inspect --format '{{.State.ExitCode}}' dnsmgr-smoke)" = 0
 
       - name: Clean up test container
         if: always()
