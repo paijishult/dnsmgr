@@ -114,7 +114,7 @@ jobs:
           probe="dnsmgr-runtime-${GITHUB_RUN_ID}.php"
           trap 'docker exec dnsmgr-smoke rm -f "/app/www/public/$probe"' EXIT
           docker cp .github/docker/verify-runtime.php "dnsmgr-smoke:/app/www/public/$probe"
-          curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:18081/$probe" \
+          curl --fail-with-body --silent --show-error --max-time 20 "http://127.0.0.1:18081/$probe" \
             | tee "$RUNNER_TEMP/dnsmgr-runtime.json"
           jq --exit-status '.php == "8.3.36" and .sapi == "fpm-fcgi" and (.checks | index("application-signature") != null)' "$RUNNER_TEMP/dnsmgr-runtime.json"
           docker exec dnsmgr-smoke rm "/app/www/public/$probe"

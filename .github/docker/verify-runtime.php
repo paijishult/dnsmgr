@@ -24,19 +24,6 @@ try {
     if (phpversion('swoole') !== '6.2.2' || phpversion('ssh2') !== '1.5.0') {
         throw new RuntimeException('Unexpected Swoole/SSH2 extension version');
     }
-    foreach (['Co', Swoole\ConnectionPool::class] as $class) {
-        if (!class_exists($class)) {
-            throw new RuntimeException('Missing Swoole runtime class: ' . $class);
-        }
-    }
-    // MySQL uses mysqlnd's socket hooks; Swoole has no PDO_MYSQL hook constant.
-    // Reflection info is text in CLI and an HTML table in FPM.
-    ob_start();
-    (new ReflectionExtension('swoole'))->info();
-    $swooleInfo = preg_replace('/<[^>]*>/', ' ', ob_get_clean());
-    if (!preg_match('/\bmysqlnd\s*(?:=>\s*)?enabled\b/i', $swooleInfo)) {
-        throw new RuntimeException('Missing Swoole mysqlnd support');
-    }
 
     $database = new PDO('sqlite::memory:');
     $database->exec('CREATE TABLE runtime_probe (value TEXT NOT NULL)');
@@ -76,6 +63,19 @@ try {
 
     $checks = ['extensions', 'sqlite', 'xml', 'sodium', 'application-signature'];
     if (PHP_SAPI === 'cli') {
+        // Swoole loads its PHP connection-pool library only in CLI, where Dmtask runs.
+        foreach (['Co', Swoole\ConnectionPool::class] as $class) {
+            if (!class_exists($class)) {
+                throw new RuntimeException('Missing Swoole runtime class: ' . $class);
+            }
+        }
+        // MySQL uses mysqlnd's socket hooks; Swoole has no PDO_MYSQL hook constant.
+        ob_start();
+        (new ReflectionExtension('swoole'))->info();
+        $swooleInfo = ob_get_clean();
+        if (!preg_match('/\bmysqlnd\s*=>\s*enabled\b/i', $swooleInfo)) {
+            throw new RuntimeException('Missing Swoole mysqlnd support');
+        }
         Co::set(['hook_flags' => SWOOLE_HOOK_ALL]);
         $received = null;
         Swoole\Coroutine\run(static function () use (&$received): void {
@@ -92,6 +92,7 @@ try {
     }
     echo json_encode(['php' => PHP_VERSION, 'sapi' => PHP_SAPI, 'checks' => $checks], JSON_THROW_ON_ERROR) . "\n";
 } catch (Throwable $error) {
+    error_log('Runtime verification failed: ' . $error->getMessage());
     http_response_code(500);
     echo json_encode(['error' => $error->getMessage()], JSON_THROW_ON_ERROR) . "\n";
     exit(1);
