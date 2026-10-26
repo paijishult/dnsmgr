@@ -46,11 +46,44 @@ namespace {
     mmwCheck($client instanceof \app\lib\DeployInterface, 'Saved accounts load through the native factory');
     mmwCheck(\app\lib\DeployHelper::getModel2('miaomiaowu', $account) instanceof \app\lib\DeployInterface, 'Unsaved account connection tests use the same module');
 
-    $GLOBALS['mmw_responses'][] = ['code' => 200, 'body' => '{"certificates":[]}'];
+    $missingFields = ['code' => 400, 'body' => '{"success":false,"message":"domain, cert_pem and key_pem are required"}'];
+    $secureChannel = ['code' => 403, 'body' => '{"code":"SECURE_CHANNEL_REQUIRED","error":"secure channel required"}'];
+    $GLOBALS['mmw_responses'][] = $missingFields;
+    $GLOBALS['mmw_responses'][] = $secureChannel;
     mmwCheck($client->check() === true, 'Account connection check succeeds');
-    $request = end($GLOBALS['mmw_requests']);
-    mmwCheck($request['method'] === 'GET' && $request['body'] === null && $request['url'] === 'https://panel.example.com/mmw/api/admin/certificates', 'Account checks only read the certificate list and preserve proxy subpaths');
-    mmwCheck($request['headers']['Authorization'] === 'Bearer fixture-token' && $request['proxy'] === true, 'Bearer authentication and the native proxy option are used');
+    $request = $GLOBALS['mmw_requests'][0];
+    mmwCheck($request['method'] === 'POST' && $request['body'] === '{}' && $request['url'] === 'https://panel.example.com/mmw/api/admin/certificates/upload' && $request['timeout'] === 10, 'Account checks use an empty upload request, preserve subpaths and never read the protected admin list');
+    mmwCheck($request['headers']['Authorization'] === 'Bearer fixture-token' && $request['headers']['MM-Authorization'] === 'fixture-token' && $request['proxy'] === true, 'Both documented authentication headers and the native proxy option are used');
+    $control = $GLOBALS['mmw_requests'][1];
+    mmwCheck($control['body'] === '{}' && $control['headers']['MM-Authorization'] !== 'fixture-token' && $control['headers']['Authorization'] === 'Bearer ' . $control['headers']['MM-Authorization'], 'A certificate-free invalid-token control proves authentication happens before missing-field validation');
+
+    foreach ([
+        ['code' => 401, 'body' => '{"error":"invalid API token"}'],
+        $secureChannel,
+    ] as $denied) {
+        $GLOBALS['mmw_responses'][] = $missingFields;
+        $GLOBALS['mmw_responses'][] = $denied;
+        mmwCheck($client->check() === true, 'An authenticated webhook can reject an invalid token without allowing the browser admin channel');
+    }
+    foreach ([
+        $missingFields,
+        ['code' => 503, 'body' => '{"error":"unavailable"}'],
+        ['code' => 403, 'body' => '<html>Cloudflare blocked</html>'],
+    ] as $controlResponse) {
+        $GLOBALS['mmw_responses'][] = $missingFields;
+        $GLOBALS['mmw_responses'][] = $controlResponse;
+        mmwCheck(str_contains(mmwFailure(fn() => $client->check(), 'Unverified token accepted'), '无法安全确认账户可用'), 'Body validation before auth, transport failures and HTML blocks cannot produce a false success');
+    }
+    foreach ([
+        $secureChannel,
+        ['code' => 400, 'body' => '<html>Bad request</html>'],
+        ['code' => 200, 'body' => '{"success":true}'],
+        ['code' => 204, 'body' => ''],
+    ] as $probeResponse) {
+        $GLOBALS['mmw_responses'][] = $probeResponse;
+        mmwFailure(fn() => $client->check(), 'An unexpected probe response was accepted');
+    }
+    mmwCheck($GLOBALS['mmw_responses'] === [], 'Unexpected probe responses stop without a control request');
 
     $fullchain = "-----BEGIN CERTIFICATE-----\nleaf-fixture\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nchain-fixture\n-----END CERTIFICATE-----\n";
     $privatekey = "-----BEGIN PRIVATE KEY-----\nprivate-fixture\n-----END PRIVATE KEY-----\n";
@@ -61,7 +94,7 @@ namespace {
     $client->deploy($fullchain, $privatekey, ['domain' => null, 'domainList' => ['*.example.com', 'example.com']], $info);
     $request = end($GLOBALS['mmw_requests']);
     $payload = json_decode($request['body'], true, 512, JSON_THROW_ON_ERROR);
-    mmwCheck($request['method'] === 'POST' && $request['url'] === 'https://panel.example.com/mmw/api/admin/certificates/upload' && $request['headers']['Content-Type'] === 'application/json', 'Uploads use the provided JSON endpoint');
+    mmwCheck($request['method'] === 'POST' && $request['url'] === 'https://panel.example.com/mmw/api/admin/certificates/upload' && $request['headers']['Content-Type'] === 'application/json' && $request['headers']['MM-Authorization'] === 'fixture-token', 'Uploads use the provided JSON endpoint and support MM-Authorization through reverse proxies');
     mmwCheck(array_keys($payload) === ['domain', 'cert_pem', 'key_pem'] && $payload['domain'] === '*.example.com', 'An empty task domain defaults to the first ordered certificate domain, including wildcards');
     mmwCheck(base64_decode($payload['cert_pem'], true) === $fullchain && base64_decode($payload['key_pem'], true) === $privatekey, 'Full chain, private key and PEM newlines survive Base64 encoding');
     mmwCheck($info === ['existing' => 'receipt'] && count($logs) === 1 && !str_contains($logs[0], 'fixture-token') && !str_contains($logs[0], 'private-fixture'), 'Native logging preserves receipts and does not expose credentials');
@@ -79,6 +112,7 @@ namespace {
     foreach ([
         ['code' => 401, 'body' => '{"error":"invalid API token"}'],
         ['code' => 403, 'body' => '{"message":"forbidden"}'],
+        $secureChannel,
         ['code' => 404, 'body' => '<html>Not found</html>'],
         ['code' => 500, 'body' => '{"success":true}'],
         ['code' => 200, 'body' => '{"error":"upload rejected"}'],
