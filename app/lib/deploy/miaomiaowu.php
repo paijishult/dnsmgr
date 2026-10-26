@@ -3,6 +3,7 @@
 namespace app\lib\deploy;
 
 use app\lib\DeployInterface;
+use app\lib\MiaomiaowuSecureChannel;
 use app\lib\SensitiveLog;
 use Exception;
 
@@ -12,6 +13,8 @@ class miaomiaowu implements DeployInterface
     private $url;
     private $token;
     private $proxy;
+    private $secureChannel;
+    private $clientId;
 
     public function __construct($config)
     {
@@ -22,8 +25,7 @@ class miaomiaowu implements DeployInterface
 
     public function check()
     {
-        // The admin certificate list can require the browser's encrypted channel.
-        // Probe the external upload endpoint without supplying certificate data.
+        // Authenticate the real upload route without supplying certificate data.
         $path = '/api/admin/certificates/upload';
         $response = $this->send($path, [], 10);
         $result = json_decode($response['body'], true);
@@ -34,7 +36,8 @@ class miaomiaowu implements DeployInterface
             $control->token = 'mmwx_' . bin2hex(random_bytes(24));
             $rejected = $control->send($path, [], 10);
             $rejectedResult = json_decode($rejected['body'], true);
-            if (in_array((int)$rejected['code'], [401, 403], true) && is_array($rejectedResult) && $this->errorMessage($rejectedResult) !== '') {
+            if (in_array((int)$rejected['code'], [401, 403], true) && is_array($rejectedResult)
+                && ($rejectedResult['code'] ?? '') !== 'SECURE_CHANNEL_REQUIRED' && $this->errorMessage($rejectedResult) !== '') {
                 return true;
             }
             throw new Exception('妙妙屋上传接口未能区分有效与无效Token，无法安全确认账户可用');
@@ -99,7 +102,66 @@ class miaomiaowu implements DeployInterface
             $headers['Content-Type'] = 'application/json';
             $body = json_encode((object)$params, JSON_THROW_ON_ERROR);
         }
-        return http_request($this->url . $path, $body, null, null, $headers, $this->proxy, $params === null ? 'GET' : 'POST', $timeout ?? ($params === null ? 10 : 60));
+        $timeout = $timeout ?? ($params === null ? 10 : 60);
+        if ($this->secureChannel !== null) return $this->sendEncrypted($path, $body, $headers, $timeout);
+        $response = http_request($this->url . $path, $body, null, null, $headers, $this->proxy, $params === null ? 'GET' : 'POST', $timeout);
+        $result = json_decode($response['body'], true);
+        if ((int)$response['code'] === 403 && ($result['code'] ?? '') === 'SECURE_CHANNEL_REQUIRED') {
+            $this->openChannel($timeout);
+            return $this->sendEncrypted($path, $body, $headers, $timeout);
+        }
+        return $response;
+    }
+
+    private function openChannel($timeout)
+    {
+        $url = parse_url($this->url);
+        $audience = strtolower($url['scheme']) . '://' . $url['host'] . (isset($url['port']) ? ':' . $url['port'] : '');
+        if ($this->clientId === null) {
+            $bytes = random_bytes(16);
+            $bytes[6] = chr((ord($bytes[6]) & 15) | 64);
+            $bytes[8] = chr((ord($bytes[8]) & 63) | 128);
+            $hex = bin2hex($bytes);
+            $this->clientId = substr($hex, 0, 8) . '-' . substr($hex, 8, 4) . '-' . substr($hex, 12, 4) . '-' . substr($hex, 16, 4) . '-' . substr($hex, 20);
+        }
+        $channel = new MiaomiaowuSecureChannel();
+        $headers = ['Accept' => 'application/json', 'Content-Type' => 'application/json', 'X-MMWX-Client' => $this->clientId];
+        // The public handshake receives no account token or certificate material.
+        $response = http_request($this->url . '/api/securechan/handshake?t=' . (int)(microtime(true) * 1000),
+            json_encode($channel->handshakeRequest($audience), JSON_THROW_ON_ERROR), null, null, $headers, $this->proxy, 'POST', $timeout);
+        $result = json_decode($response['body'], true);
+        if ((int)$response['code'] !== 200 || !is_array($result)) {
+            throw new Exception('妙妙屋安全通道握手失败(httpCode=' . (int)$response['code'] . ')');
+        }
+        $channel->acceptHandshake($result, $audience);
+        $this->secureChannel = $channel;
+    }
+
+    private function sendEncrypted($path, $body, array $headers, $timeout, $renew = true)
+    {
+        $headers = array_merge($headers, $this->secureChannel->headers(), ['X-MMWX-Client' => $this->clientId]);
+        $response = http_request($this->url . $path, $this->secureChannel->encrypt($body ?? ''), null, null, $headers, $this->proxy, 'POST', $timeout);
+        if (in_array((int)$response['code'], [401, 403], true)
+            && in_array($this->responseHeader($response, 'X-Secure-Channel-Expired'), ['1', 'true'], true)) {
+            // Retry only an explicit rejection before the upload handler ran.
+            if (!$renew) throw new Exception('妙妙屋安全通道已过期，请重试任务');
+            $this->openChannel($timeout);
+            return $this->sendEncrypted($path, $body, $headers, $timeout, false);
+        }
+        if ($this->responseHeader($response, 'X-Secure-Channel') === 'v1') {
+            $response['body'] = $this->secureChannel->decrypt($response['body']);
+        } elseif ((int)$response['code'] >= 200 && (int)$response['code'] < 300) {
+            throw new Exception('妙妙屋安全通道响应未加密，无法确认推送结果');
+        }
+        return $response;
+    }
+
+    private function responseHeader(array $response, $name)
+    {
+        foreach ($response['headers'] ?? [] as $key => $value) {
+            if (strcasecmp($key, $name) === 0) return is_array($value) ? (string)reset($value) : (string)$value;
+        }
+        return '';
     }
 
     private function errorMessage(array $result)
@@ -122,7 +184,7 @@ class miaomiaowu implements DeployInterface
             $message = is_array($result) ? $this->errorMessage($result) : '';
             if ($message === '') $message = '请求失败';
             if (($result['code'] ?? '') === 'SECURE_CHANNEL_REQUIRED' || $message === 'secure channel required') {
-                $message .= '（妙妙屋要求加密安全通道，请核对管理员API Token及当前版本的证书上传Webhook支持）';
+                $message .= '（妙妙屋拒绝安全通道，请核对面板版本）';
             }
             $secrets = [$this->token];
             foreach (['cert_pem', 'key_pem'] as $key) {

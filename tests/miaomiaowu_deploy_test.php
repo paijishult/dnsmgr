@@ -10,6 +10,7 @@ namespace {
     require __DIR__ . '/../app/lib/DeployInterface.php';
     require __DIR__ . '/../app/lib/DeployHelper.php';
     require __DIR__ . '/../app/lib/SensitiveLog.php';
+    require __DIR__ . '/../app/lib/MiaomiaowuSecureChannel.php';
     require __DIR__ . '/../app/lib/deploy/miaomiaowu.php';
 
     class MiaomiaowuAccountQuery
@@ -49,7 +50,7 @@ namespace {
     $missingFields = ['code' => 400, 'body' => '{"success":false,"message":"domain, cert_pem and key_pem are required"}'];
     $secureChannel = ['code' => 403, 'body' => '{"code":"SECURE_CHANNEL_REQUIRED","error":"secure channel required"}'];
     $GLOBALS['mmw_responses'][] = $missingFields;
-    $GLOBALS['mmw_responses'][] = $secureChannel;
+    $GLOBALS['mmw_responses'][] = ['code' => 401, 'body' => '{"error":"invalid API token"}'];
     mmwCheck($client->check() === true, 'Account connection check succeeds');
     $request = $GLOBALS['mmw_requests'][0];
     mmwCheck($request['method'] === 'POST' && $request['body'] === '{}' && $request['url'] === 'https://panel.example.com/mmw/api/admin/certificates/upload' && $request['timeout'] === 10, 'Account checks use an empty upload request, preserve subpaths and never read the protected admin list');
@@ -59,7 +60,7 @@ namespace {
 
     foreach ([
         ['code' => 401, 'body' => '{"error":"invalid API token"}'],
-        $secureChannel,
+        ['code' => 403, 'body' => '{"error":"invalid API token"}'],
     ] as $denied) {
         $GLOBALS['mmw_responses'][] = $missingFields;
         $GLOBALS['mmw_responses'][] = $denied;
@@ -75,7 +76,6 @@ namespace {
         mmwCheck(str_contains(mmwFailure(fn() => $client->check(), 'Unverified token accepted'), '无法安全确认账户可用'), 'Body validation before auth, transport failures and HTML blocks cannot produce a false success');
     }
     foreach ([
-        $secureChannel,
         ['code' => 400, 'body' => '<html>Bad request</html>'],
         ['code' => 200, 'body' => '{"success":true}'],
         ['code' => 204, 'body' => ''],
@@ -112,7 +112,6 @@ namespace {
     foreach ([
         ['code' => 401, 'body' => '{"error":"invalid API token"}'],
         ['code' => 403, 'body' => '{"message":"forbidden"}'],
-        $secureChannel,
         ['code' => 404, 'body' => '<html>Not found</html>'],
         ['code' => 500, 'body' => '{"success":true}'],
         ['code' => 200, 'body' => '{"error":"upload rejected"}'],

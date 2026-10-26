@@ -1,0 +1,16 @@
+{
+  "source": "Public anonymous v2 handshake and official v0.6.0 SDK; fixed test seed, no API token or certificate.",
+  "seed_hex": "0101010101010101010101010101010101010101010101010101010101010101",
+  "audience": "https://panel.example.com",
+  "handshake": {
+    "backend_proof": null,
+    "proto": "v2",
+    "runtime_proof": "ZGIw/B8OF9KPeZv99hXtskSoEAUdOHoFjeKR93ypJ8BF7FnQKLi4JAEvd3paEV0QiZnVQPv7SqGnqZ7W5gUkDg==",
+    "server_pub_b64": "5encOoboyJkwBKDyL2YbO7Jh5a3pm+24hEX5sy4lZ24=",
+    "session_id": "ec67eebaaea94ea2e933d222fda0f271"
+  },
+  "material_hex": "d393b28c9d7b9b7b5c914207a32227952d34209c03159e7c833f1491087c6425131c24ed0ef97bfd8ff292fa83d5f12e2405aa61afb9a9de4e2cfc58265b09d8029eb65098c808ca537a3dad3484f7d3053c662b3163c662",
+  "official_empty_request_b64": "AQAAAAAAAAAB7SarFRq/9NXMm30XfT/VyWrE",
+  "response_plaintext": "{\"success\":false,\"message\":\"domain, cert_pem and key_pem are required\"}",
+  "response_b64": "AQAAAAAAAAABqJ8OAWzYQvPCHVUosTrR6iXy/GNGG14bjYST7fLrSYdECEU8slrjFw1AZfsquOpAYHq/EjCiU8OLQnuGZv8eG90CWn1dHHs/PIbC0SwWb/tedNuRmLAK"
+}

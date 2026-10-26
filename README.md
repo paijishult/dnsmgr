@@ -101,7 +101,7 @@ Let's Encrypt、ZeroSSL、Google SSL、LiteSSL、腾讯云免费 SSL、阿里云
 
 </details>
 
-妙妙屋X：在「SSL 证书 → 自动部署账户」添加「妙妙屋X」，填写面板地址，以及系统设置中的全局 API Token 或管理员签发的个人 API 令牌。原生“测试连接”和账户列表“一键测试”使用上传 Webhook 的空请求验证鉴权，不读取需要安全通道的后台证书列表，也不发送或创建证书；若服务端不能区分有效与无效 Token，则明确报错。再在「自动部署任务」关联该账户与 SSL 证书；证书域名留空时使用关联证书的第一个域名，也可填写证书覆盖的域名（支持通配符）。任务按[妙妙屋官方接口说明](https://miaomiaowux.com/docs/certificates/#webhook-上传证书certimate-集成)，通过 `POST /api/admin/certificates/upload` 推送 Base64 编码的完整证书链和私钥，同时携带 `Authorization: Bearer` 与 `MM-Authorization` 以兼容接口鉴权。续期、重试和日志沿用现有任务机制；妙妙屋端的证书绑定和部署需在其面板配置。
+妙妙屋X：在「SSL 证书 → 自动部署账户」添加「妙妙屋X」，填写面板地址，推荐使用系统设置中的全局 API Token，也支持管理员签发的个人 API 令牌。原生“测试连接”和账户列表“一键测试”使用上传 Webhook 的空请求验证鉴权，不发送或创建证书；若服务端不能区分有效与无效 Token，则明确报错。遇到 `SECURE_CHANNEL_REQUIRED` 时，适配器自动协商妙妙屋 v2 安全通道，校验官方运行时签名并加密请求和响应（需要 PHP Sodium、OpenSSL，Docker 镜像已包含），无需关闭妙妙屋安全设置。再在「自动部署任务」关联该账户与 SSL 证书；证书域名留空时使用关联证书的第一个域名，也可填写证书覆盖的域名（支持通配符）。任务按[妙妙屋官方接口说明](https://miaomiaowux.com/docs/certificates/#webhook-上传证书certimate-集成)，通过 `POST /api/admin/certificates/upload` 推送 Base64 编码的完整证书链和私钥，同时携带 `Authorization: Bearer` 与 `MM-Authorization` 以兼容接口鉴权。续期、重试和日志沿用现有任务机制；妙妙屋端的证书绑定和部署需在其面板配置。
 
 ## 原生架构
 
