@@ -1114,6 +1114,46 @@ class DeployHelper
             ],
             'taskinputs' => [],
         ],
+        'miaomiaowu' => [
+            'name' => '妙妙屋X',
+            'class' => 1,
+            'icon' => 'host.png',
+            'desc' => '通过 API Token 推送证书到妙妙屋X',
+            'note' => 'API Token 在妙妙屋X的系统设置中获取，直接填写 Token，不要带 Bearer 前缀。测试连接只读取证书列表，不会上传证书。',
+            'tasknote' => '将关联SSL证书推送到妙妙屋X的证书管理，每个任务上传一份证书。域名留空时使用关联证书的第一个域名；妙妙屋端的证书绑定和部署请在其面板配置。',
+            'inputs' => [
+                'url' => [
+                    'name' => '面板地址',
+                    'type' => 'input',
+                    'placeholder' => 'https://mmw.example.com',
+                    'note' => '填写妙妙屋X面板地址，不要带 /api/admin/certificates 等接口后缀；使用反向代理子路径时请保留子路径。',
+                    'required' => true,
+                ],
+                'token' => [
+                    'name' => 'API Token',
+                    'type' => 'input',
+                    'placeholder' => '妙妙屋X系统设置中的 API Token',
+                    'required' => true,
+                ],
+                'proxy' => [
+                    'name' => '使用代理服务器',
+                    'type' => 'radio',
+                    'options' => [
+                        '0' => '否',
+                        '1' => '是',
+                    ],
+                    'value' => '0'
+                ],
+            ],
+            'taskinputs' => [
+                'domain' => [
+                    'name' => '证书域名',
+                    'type' => 'input',
+                    'placeholder' => '留空使用关联证书的第一个域名',
+                    'note' => '支持 example.com 或 *.example.com；填写的域名应在证书覆盖范围内。',
+                ],
+            ],
+        ],
         'fnos' => [
             'name' => '飞牛OS',
             'class' => 1,

@@ -144,7 +144,7 @@ return static function (string $name, array $user): array {
 
  if ($name === 'cert/deploy_form') {
      $base['typeList'] = \app\lib\DeployHelper::getList();
-     $base['accounts'] = [1 => ['id' => 1, 'type' => 'btpanel', 'name' => '示例部署账户']];
+     $base['accounts'] = [1 => ['id' => 1, 'type' => 'btpanel', 'name' => '示例部署账户'], 2 => ['id' => 2, 'type' => 'miaomiaowu', 'name' => '妙妙屋X部署账户']];
  }
  if ($name === 'domain/domain_add') $base['accounts'] = [1 => '示例账户'];
  if ($name === 'cert/cname' || $name === 'optimizeip/opipform') $base['domains'] = [1 => 'example.com'];

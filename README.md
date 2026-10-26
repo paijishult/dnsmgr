@@ -39,7 +39,7 @@
 | **批量任务** | 将已确认的 DNS 计划加入后台，逐项进度与结果、失败续跑、取消、历史快照；复用原生计划任务 |
 | **多用户与授权** | 管理员、普通用户、按域名授权，以及域名快捷登录对接 |
 | **SSL 证书** | ACME 与云平台证书账户、DNS 验证、CNAME 代理、自动续签、手动导入、证书和私钥下载 |
-| **证书部署** | 面板、WAF/CDN、云平台、Kubernetes、SSH、FTP、S3 与本机部署，共 50 个模块 |
+| **证书部署** | 面板、WAF/CDN、云平台、Kubernetes、SSH、FTP、S3 与本机部署，共 51 个模块 |
 | **线上 TLS 验收** | 可选核对线上证书、主机名、可信证书链与 SHA-256 指纹；部署完成后验收失败只重试验收 |
 | **容灾与定时** | Ping/TCP/HTTP(S) 检测、暂停/恢复/切换记录、连续检测阈值、单次/每日/每周/每月定时切换 |
 | **Cloudflare 增强** | SaaS 自定义主机名、验证信息、回退源、Tunnel、公共主机名、CIDR 和主机名路由 |
@@ -89,17 +89,19 @@
 Let's Encrypt、ZeroSSL、Google SSL、LiteSSL、腾讯云免费 SSL、阿里云免费 SSL、UCloud 免费 SSL、自定义 ACME；同时支持手动导入已有证书。
 
 <details>
-<summary><strong>展开：全部 50 个证书部署模块</strong></summary>
+<summary><strong>展开：全部 51 个证书部署模块</strong></summary>
 
 | 类别 | 模块 |
 | --- | --- |
-| 面板与服务 | 宝塔、宝塔 Win 极速版、Kangle 用户/Kangle 管理员、雷池 WAF、堡塔云 WAF、Cdnfly、LeCDN、GoEdge、南墙 WAF、1Panel、MW 面板、AcePanel、耗子面板、小皮面板、AMH、CloudPanel、DirectAdmin、群晖、Lucky、飞牛 OS、Nginx Proxy Manager、Proxmox VE、Kubernetes |
+| 面板与服务 | 宝塔、宝塔 Win 极速版、Kangle 用户/Kangle 管理员、雷池 WAF、堡塔云 WAF、Cdnfly、LeCDN、GoEdge、南墙 WAF、1Panel、MW 面板、AcePanel、耗子面板、小皮面板、AMH、CloudPanel、DirectAdmin、群晖、Lucky、妙妙屋X、飞牛 OS、Nginx Proxy Manager、Proxmox VE、Kubernetes |
 | 云平台与 CDN | 阿里云、腾讯云、华为云、UCloud、七牛云、多吉云、AxisNow、又拍云、百度云、金山云、火山引擎、西部数码、网宿科技、白山云、天翼云、括彩云、全栈云、雨云、uniCloud、AWS、Gcore、Cachefly |
 | 服务器与存储 | SSH 服务器、FTP 服务器、S3 存储、复制到本机 |
 
 具体参数、平台权限和功能差异以后台表单及对应平台接口为准。模块清单来自 [DnsHelper](app/lib/DnsHelper.php)、[CertHelper](app/lib/CertHelper.php) 与 [DeployHelper](app/lib/DeployHelper.php)。
 
 </details>
+
+妙妙屋X：在「SSL 证书 → 自动部署账户」添加「妙妙屋X」，填写面板地址和系统设置中的 API Token，可使用原生“测试连接”或账户列表的“一键测试”。再在「自动部署任务」关联该账户与 SSL 证书；证书域名留空时使用关联证书的第一个域名，也可填写证书覆盖的域名（支持通配符）。任务通过 `POST /api/admin/certificates/upload` 推送 Base64 编码的完整证书链和私钥，续期、重试和日志沿用现有任务机制；妙妙屋端的证书绑定和部署需在其面板配置。
 
 ## 原生架构
 

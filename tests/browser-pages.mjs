@@ -106,6 +106,16 @@ try {
     await page.evaluate(()=>openForm());await page.locator('#formModal').waitFor({state:'visible'});
     await page.locator('#formModal [data-dismiss="modal"]').first().click();await page.locator('#formModal').waitFor({state:'hidden'});
    });
+   if(entry.name==='cert/deploy_form')await check('native Miaomiaowu task fields and provider switching',async()=>{
+    await page.locator('select[name=aid]').selectOption('2');
+    await page.locator('input[name=domain]').fill('*.example.com');
+    if(!await page.locator('input[name=domain]').evaluate(el=>el.value==='*.example.com'&&!el.required))throw new Error('optional certificate domain missing');
+    await page.locator('select[name=aid]').selectOption('1');
+    await page.locator('textarea[name=sites]').waitFor({state:'visible'});
+    if(await page.locator('input[name=domain]').count())throw new Error('Miaomiaowu fields leaked into another provider');
+    await page.locator('select[name=aid]').selectOption('2');
+    await page.locator('input[name=domain]').waitFor({state:'visible'});
+   });
    if(entry.name==='cert/deploy_form')await check('TLS verification settings',async()=>{
     await page.locator('#accountform input[type=checkbox]').last().check();
     await page.locator('#verify-host').waitFor({state:'visible'});

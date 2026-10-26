@@ -63,6 +63,9 @@ namespace {
     rejects(fn()=>$normalize->invoke($controller,'{"unrecognized":"value"}',1,10));
     rejects(fn()=>$normalize->invoke($controller,'{"_verify_tls":{"enabled":true,"host":"attacker.example.net"}}',1,10));
     $value=json_decode($normalize->invoke($controller,'{"_verify_tls":{"enabled":true,"host":"example.com"}}',1,10),true);ccheck($value['_verify_tls']['host']==='example.com'&&$value['_verify_tls']['port']===443,'verification target stays in order scope');
+    Db::$tables['cert_account'][]=['id'=>2,'deploy'=>1,'type'=>'miaomiaowu'];
+    $value=json_decode($normalize->invoke($controller,'{"domain":"*.example.com"}',2,10),true);ccheck($value['domain']==='*.example.com'&&$value['_verify_tls']===['enabled'=>false],'Miaomiaowu task fields use native config normalization and API allowlisting');
+    ccheck(\app\controller\Cert::deployTypeApiWritable('miaomiaowu'),'Miaomiaowu participates in native deployment API permissions');
     $GLOBALS['controller_request']->isApi=false;
     // A live worker prevents controller writes/deletes under the identical mutex.
     $lock=new \app\service\TaskLockService(new ControllerConnection(),'cert-deploy:20');$lock->acquire();
