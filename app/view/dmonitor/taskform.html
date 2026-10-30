@@ -226,7 +226,8 @@ new Vue({
             Object.keys(info).forEach((key) => {
                 this.$set(this.set, key, info[key])
             })
-            var recordinfo = JSON.parse(this.set.recordinfo);
+            var recordinfo = {};
+            try { recordinfo = JSON.parse(this.set.recordinfo) || {}; } catch (e) {}
             this.recordList = [{RecordId:this.set.recordid, Value:this.set.main_value, Line:recordinfo.Line, LineName:recordinfo.LineName, TTL:recordinfo.TTL}];
         }
         $("#taskform").bootstrapValidator({

@@ -4,8 +4,12 @@ FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2
 WORKDIR /app/www
 
 ARG PHP_APK_VERSION=8.3.36-r0
-ARG SWOOLE_APK_VERSION=6.2.2-r0
 ARG SSH2_APK_VERSION=1.5.0-r0
+# Swoole 从 PECL 源码编译且不启用 io_uring。Alpine 的 php83-pecl-swoole 启用了 io_uring，
+# 而 Docker 默认 seccomp 禁止 io_uring，较旧内核（< 6.7）也不支持其 futex 操作，
+# 会让容灾监控进程（dmtask）在第一次协程 sleep 时直接退出。SHA-256 已与官方 v6.2.3 源码逐文件核对。
+ARG SWOOLE_VERSION=6.2.3
+ARG SWOOLE_SHA256=21dfa1c4a4a09f4d1cb4b154f7defdc91fbabafc8d44a77f8f618b9742c67304
 ENV PHP_INI_DIR=/etc/php83
 
 RUN set -eux; \
@@ -46,12 +50,50 @@ RUN set -eux; \
       php83-xmlreader=${PHP_APK_VERSION} \
       php83-xmlwriter=${PHP_APK_VERSION} \
       php83-zip=${PHP_APK_VERSION} \
-      php83-pecl-swoole=${SWOOLE_APK_VERSION} \
       php83-pecl-ssh2=${SSH2_APK_VERSION}; \
     ln -sf /usr/bin/php83 /usr/local/bin/php; \
-    php --ri swoole; \
     php --version; \
     rm -rf /var/cache/apk/* /tmp/*
+
+RUN set -eux; \
+    apk add --no-cache --virtual .swoole-build-deps \
+      php83-dev=${PHP_APK_VERSION} \
+      autoconf \
+      build-base \
+      linux-headers \
+      pkgconf \
+      pcre2-dev \
+      openssl-dev \
+      curl-dev \
+      c-ares-dev \
+      brotli-dev \
+      zstd-dev \
+      zlib-dev; \
+    curl -fsSL --retry 3 "https://pecl.php.net/get/swoole-${SWOOLE_VERSION}.tgz" -o /tmp/swoole.tgz; \
+    echo "${SWOOLE_SHA256}  /tmp/swoole.tgz" | sha256sum -c -; \
+    mkdir -p /usr/src/swoole; \
+    tar -xzf /tmp/swoole.tgz -C /usr/src/swoole --strip-components=1; \
+    cd /usr/src/swoole; \
+    phpize83; \
+    ./configure \
+      --with-php-config=/usr/bin/php-config83 \
+      --enable-sockets \
+      --enable-mysqlnd \
+      --enable-swoole-curl \
+      --enable-cares \
+      --enable-brotli \
+      --enable-zstd; \
+    make -j"$(getconf _NPROCESSORS_ONLN)"; \
+    make install; \
+    strip --strip-unneeded /usr/lib/php83/modules/swoole.so; \
+    echo 'extension=swoole' > ${PHP_INI_DIR}/conf.d/50_swoole.ini; \
+    runDeps="$(scanelf --needed --nobanner --format '%n#p' /usr/lib/php83/modules/swoole.so | tr ',' '\n' | sort -u | awk '{ print "so:" $1 }')"; \
+    apk add --no-cache --virtual .swoole-rundeps $runDeps; \
+    cd /; \
+    apk del --no-network .swoole-build-deps; \
+    rm -rf /usr/src/swoole /tmp/swoole.tgz /var/cache/apk/* /tmp/*; \
+    php --ri swoole; \
+    if php --ri swoole | grep -qi 'io_uring'; then echo 'Swoole must be built without io_uring' >&2; exit 1; fi
 
 # Remove default server definition
 RUN rm -f /etc/nginx/http.d/default.conf

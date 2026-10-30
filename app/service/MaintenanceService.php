@@ -14,6 +14,7 @@ class MaintenanceService
             '证书任务'=>fn()=>(new CertTaskService())->execute(),
             '到期提醒'=>fn()=>(new ExpireNoticeService())->task(),
             '运行检查'=>fn()=>OperationsService::execute(),
+            '容灾进程'=>fn()=>OperationsService::monitorWatchdog(),
             '通知队列'=>fn()=>NotificationService::execute(),
         ];
         foreach ($jobs as $name=>$job) {

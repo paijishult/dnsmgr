@@ -24,6 +24,9 @@
 
 ## 本次更新
 
+> **1068 · 修复 Docker 镜像中容灾监控进程无法运行**
+> 2026-10-22 起的镜像改用 Alpine 自带的 Swoole，它启用了 io_uring，在 Docker 默认安全策略或 6.7 以下内核中会让 `dmtask` 启动后立即退出，容灾监控实际没有运行。现改为从 PECL 源码编译 Swoole 6.2.3（不启用 io_uring）；进程无法运行时，后台显示原因，并在有启用的监控任务时发送一次告警。详见[修复记录](docs/changes-2026-10-30.md)。
+
 > **2026-10-29 · 上游同步与部署修复**
 > 加入 ALIAS 解析支持、SamWaf 部署及 EasyPanel 面板证书部署；修复 Kangle 部分失败误报成功、Cookie 日志泄露、Cloudflare 批量 TXT 目标串用和特殊记录 ID 复制失败。详见[检查与同步记录](docs/changes-2026-10-29.md)。
 

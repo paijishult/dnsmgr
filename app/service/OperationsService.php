@@ -31,6 +31,23 @@ class OperationsService
         Db::name('api_receipt')->where('expires','<',time())->limit(500)->delete();
     }
 
+    /**
+     * Alert once per outage when monitoring tasks are enabled but the dmtask worker has
+     * stopped sending its heartbeat (it updates run_time every 3 seconds while running).
+     */
+    public static function monitorWatchdog(): void
+    {
+        if (!Db::name('dmtask')->where('active',1)->count()) return;
+        $runTime=config_get('run_time',null,true);
+        $last=$runTime ? strtotime($runTime) : false;
+        if ($last && time()-$last<300) return;
+        $error=(string)config_get('run_error','',true);
+        $content='尊敬的用户，您好：<br/>有已启用的容灾监控任务，但容灾监控进程已停止运行，健康检查和自动切换都不会执行。<br/>最后运行时间：'.htmlspecialchars($runTime ?: '无',ENT_QUOTES,'UTF-8');
+        if ($error!=='') $content.='<br/>错误信息：'.htmlspecialchars(\app\lib\SensitiveLog::filter($error),ENT_QUOTES,'UTF-8');
+        $content.='<br/>请检查 dmtask 进程（Docker 镜像中由 Supervisor 守护，可查看容器日志）。';
+        \app\utils\MsgNotice::queue('monitor-worker-down:'.($runTime ?: 'never'),'容灾监控进程未运行',$content,'notice_',false);
+    }
+
     public static function credential(string $kind,int $id): array
     {
         $table=match($kind){'dns'=>'account','cert','deploy'=>'cert_account','api'=>'apikey',default=>throw new \InvalidArgumentException('账户类型无效')};

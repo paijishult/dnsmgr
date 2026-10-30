@@ -35,6 +35,12 @@ class Dmtask extends Command
             config_set('run_error', '未安装Swoole扩展');
             return;
         }
+        $iouringError = $this->iouringError();
+        if ($iouringError !== null) {
+            $output->writeln('[Error] ' . $iouringError);
+            config_set('run_error', $iouringError);
+            return;
+        }
         try {
             $output->writeln('进程启动成功.');
             $this->runtask();
@@ -42,6 +48,35 @@ class Dmtask extends Command
             $output->writeln('[Error] ' . $e->getMessage());
             config_set('run_error', $e->getMessage());
         }
+    }
+
+    /**
+     * Swoole built with io_uring terminates the whole process (exit 1, no exception) when
+     * the ring cannot be created, e.g. under Docker's default seccomp profile or on kernels
+     * older than the build host. Probe it in a child process so the reason reaches the UI.
+     */
+    private function iouringError(): ?string
+    {
+        ob_start();
+        (new \ReflectionExtension('swoole'))->info();
+        $info = (string)ob_get_clean();
+        if (!preg_match('/\bio_uring\s*=>\s*enabled\b/i', $info) || !function_exists('proc_open')) {
+            return null;
+        }
+        $code = 'Swoole\Coroutine\run(function(){Swoole\Coroutine::sleep(0.001);});echo "ok";';
+        $process = @proc_open([PHP_BINARY, '-r', $code], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) {
+            return null;
+        }
+        $stdout = (string)stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exitCode = proc_close($process);
+        if ($exitCode === 0 && trim($stdout) === 'ok') {
+            return null;
+        }
+        return 'Swoole扩展启用了io_uring，但当前环境不允许使用（Docker默认安全策略会禁止，或内核版本过低），容灾监控进程无法运行。请改用未启用io_uring编译的Swoole，或更新到最新的Docker镜像';
     }
 
     private function runtask()

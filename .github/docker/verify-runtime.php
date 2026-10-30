@@ -21,7 +21,7 @@ try {
             throw new RuntimeException('Missing extension: ' . $extension);
         }
     }
-    if (phpversion('swoole') !== '6.2.2' || phpversion('ssh2') !== '1.5.0') {
+    if (phpversion('swoole') !== '6.2.3' || phpversion('ssh2') !== '1.5.0') {
         throw new RuntimeException('Unexpected Swoole/SSH2 extension version');
     }
 
@@ -76,15 +76,26 @@ try {
         if (!preg_match('/\bmysqlnd\s*=>\s*enabled\b/i', $swooleInfo)) {
             throw new RuntimeException('Missing Swoole mysqlnd support');
         }
+        // io_uring is blocked by Docker's default seccomp profile and Swoole exits the
+        // whole process when it cannot create the ring, so Dmtask would crash-loop.
+        if (preg_match('/\bio_uring\b/i', $swooleInfo)) {
+            throw new RuntimeException('Swoole must be built without io_uring');
+        }
         Co::set(['hook_flags' => SWOOLE_HOOK_ALL]);
         $received = null;
-        Swoole\Coroutine\run(static function () use (&$received): void {
+        $probeFile = tempnam(sys_get_temp_dir(), 'dnsmgr-co-');
+        Swoole\Coroutine\run(static function () use (&$received, $probeFile): void {
             $channel = new Swoole\Coroutine\Channel(1);
-            Swoole\Coroutine::create(static function () use ($channel): void {
-                $channel->push('runtime-ok');
+            Swoole\Coroutine::create(static function () use ($channel, $probeFile): void {
+                // The same hooked operations Dmtask uses: coroutine sleep and file cache I/O.
+                usleep(1000);
+                Swoole\Coroutine::sleep(0.001);
+                file_put_contents($probeFile, 'runtime-ok');
+                $channel->push(file_get_contents($probeFile));
             });
             $received = $channel->pop(2);
         });
+        @unlink($probeFile);
         if ($received !== 'runtime-ok') {
             throw new RuntimeException('Swoole coroutine channel failed');
         }
