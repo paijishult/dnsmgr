@@ -41,7 +41,7 @@ CREATE TABLE `dnsmgr_domain` (
   `noticetime` datetime DEFAULT NULL,
   `checkstatus` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
-  KEY `name` (`name`),
+  KEY `name` (`name`(191)),
   KEY `cid` (`cid`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -82,7 +82,7 @@ CREATE TABLE `dnsmgr_log` (
   `addtime` datetime NOT NULL,
   PRIMARY KEY (`id`),
   KEY `uid` (`uid`),
-  KEY `domain` (`domain`)
+  KEY `domain` (`domain`(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 DROP TABLE IF EXISTS `dnsmgr_dmtask`;
@@ -263,7 +263,7 @@ CREATE TABLE `dnsmgr_domain_alias` (
   `name` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `did` (`did`),
-  KEY `name` (`name`)
+  KEY `name` (`name`(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 DROP TABLE IF EXISTS `dnsmgr_domain_category`;

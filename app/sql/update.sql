@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS `dnsmgr_domain_alias` (
   `name` varchar(255) NOT NULL,
   PRIMARY KEY (`id`),
   KEY `did` (`did`),
-  KEY `name` (`name`)
+  KEY `name` (`name`(191))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS `dnsmgr_domain_category` (
