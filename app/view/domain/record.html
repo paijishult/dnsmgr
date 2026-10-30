@@ -30,6 +30,7 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
 							<select name="type" class="form-control">
 								<option value="A">A</option>
 								<option value="CNAME">CNAME</option>
+								{if $dnsconfig.alias}<option value="ALIAS">ALIAS</option>{/if}
 								<option value="AAAA">AAAA</option>
 								<option value="NS">NS</option>
 								<option value="MX">MX</option>
@@ -107,6 +108,7 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
 							<select name="type" class="form-control">
 								<option value="A">A</option>
 								<option value="CNAME">CNAME</option>
+								{if $dnsconfig.alias}<option value="ALIAS">ALIAS</option>{/if}
 								<option value="AAAA">AAAA</option>
 								<option value="NS">NS</option>
 								<option value="MX">MX</option>
@@ -201,6 +203,7 @@ td{overflow: hidden;text-overflow: ellipsis;white-space: nowrap;max-width:360px;
 	<select name="type" class="form-control"><option value="">全部类型</option>
 		<option value="A">A</option>
 		<option value="CNAME">CNAME</option>
+		{if $dnsconfig.alias}<option value="ALIAS">ALIAS</option>{/if}
 		<option value="AAAA">AAAA</option>
 		<option value="NS">NS</option>
 		<option value="MX">MX</option>
@@ -1018,8 +1021,9 @@ function checkRecord(recordid) {
 	});
 }
 function copyToClipboard(text, selector) {
+    var el = null;
     if (!text && selector) {
-        var el = document.querySelector(selector);
+        el = selector.charAt(0) === '#' ? document.getElementById(selector.substring(1)) : document.querySelector(selector);
         if (el) {
             text = el.getAttribute('data-value');
         }
@@ -1032,8 +1036,8 @@ function copyToClipboard(text, selector) {
     tempInput.select();
     document.execCommand('copy');
     document.body.removeChild(tempInput);
-    if(selector){
-        var icon = document.querySelector(selector + ' + a i');
+    if(el && el.nextElementSibling){
+        var icon = el.nextElementSibling.querySelector('i');
         if(icon){
             var oldClass = icon.className;
             icon.className = 'fa fa-check';

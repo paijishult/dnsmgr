@@ -11,6 +11,7 @@ class GuardedDns
     private array $initial;
     private ?string $error = null;
     private bool $snapshotted = false;
+    private ?bool $watchEnabled = null;
     private $lock;
 
     public function __construct(private object $dns, private array $domain, private $connection = null)
@@ -48,6 +49,10 @@ class GuardedDns
             if (in_array($method, ['addDomainRecord', 'updateDomainRecord'], true)) {
                 $fields = array_slice($args, $method === 'updateDomainRecord' ? 1 : 0);
                 RecordGuard::validateRecord(['name' => $fields[0] ?? null, 'type' => $fields[1] ?? null, 'value' => $fields[2] ?? null, 'line' => $fields[3] ?? null, 'ttl' => $fields[4] ?? 600, 'mx' => $fields[5] ?? null, 'weight' => $fields[6] ?? null, 'remark' => $fields[7] ?? null]);
+                if ($fields[1] === 'ALIAS') {
+                    $provider = ($this->connection ?? \think\facade\Db::connect())->name('account')->where('id', $this->domain['aid'])->value('type');
+                    if (!DnsHelper::supportsRecordType($provider, 'ALIAS')) throw new RuntimeException('当前DNS提供商不支持ALIAS记录');
+                }
             }
             if ($method === 'updateDomainRecordRemark' && isset($args[1]) && (!is_string($args[1]) || strlen($args[1]) > 2000)) throw new RuntimeException('备注格式不正确或过长');
             if ($method === 'updateRecordWeight' && (!is_numeric($args[1] ?? null) || $args[1] < 0 || $args[1] > 65535)) throw new RuntimeException('权重范围不正确');
@@ -73,10 +78,31 @@ class GuardedDns
                 (new DnsChangeService($this->connection))->snapshot($this->domain, $this->dns, '解析变更前自动快照');
                 $this->snapshotted = true;
             }
+            if ($this->watchEnabled === null) {
+                $this->watchEnabled = false;
+                if (function_exists('config_get') && config_get('dns_watch_enabled','0') === '1') {
+                    try { $this->watchEnabled = ($this->connection ?? \think\facade\Db::connect())->name('dns_watch')->where('did',$this->domain['id'])->where('enabled',1)->count() > 0; }
+                    catch (\Throwable $e) { error_log('DNS drift settings unavailable for domain #' . (int)$this->domain['id']); }
+                }
+            }
+            // Capture/disable uses this same zone lock, so this flag is stable
+            // during the request. Unwatched zones need no extra provider scans.
+            $watchEnabled = $this->watchEnabled;
+            $beforeWrite = $fresh ?? ($watchEnabled ? RecordGuard::all($this->dns, $this->domain['name']) : $this->initial);
             $result = $this->dns->$method(...$args);
+            $afterWrite = null;
             if ($result !== false && $result !== null && $method === 'updateDomainRecord' && AutomaticDnsTarget::usesContentId($this->dns)) {
                 $operation = ['name'=>$args[1], 'type'=>$args[2], 'value'=>$args[3], 'line'=>$args[4] ?? 'default'];
-                AutomaticDnsTarget::synchronize($this->dns, $this->domain, (string)$args[0], $operation, RecordGuard::all($this->dns, $this->domain['name']), $this->connection);
+                $afterWrite = RecordGuard::all($this->dns, $this->domain['name']);
+                AutomaticDnsTarget::synchronize($this->dns, $this->domain, (string)$args[0], $operation, $afterWrite, $this->connection);
+            }
+            if ($result !== false && $result !== null && $watchEnabled) {
+                try {
+                    $afterWrite ??= RecordGuard::all($this->dns, $this->domain['name']);
+                    \app\service\DriftService::managed($this->domain, $beforeWrite, $afterWrite);
+                    $this->initial = $afterWrite;
+                }
+                catch (\Throwable $e) { error_log('DNS baseline update failed: ' . \app\lib\SensitiveLog::filter($e->getMessage())); }
             }
             return $result;
         } catch (\Throwable $e) {

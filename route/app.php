@@ -198,6 +198,9 @@ Route::group(function () {
     Route::post('/audit/clean', 'audit/clean');
     Route::post('/audit/setting', 'audit/setting');
     Route::get('/audit', 'audit/index');
+    Route::get('/operations', 'operations/index');
+    Route::post('/operations/data', 'operations/data');
+    Route::post('/operations/op', 'operations/operation');
 
 })->middleware(CheckLogin::class)
 ->middleware(ViewOutput::class);

@@ -104,6 +104,14 @@
             </label>
         </div>
     </div>
+    <div class="form-group" v-show="set.checktype==2"><label class="col-sm-3 control-label">健康检查策略</label><div class="col-sm-6">
+      <label><input type="checkbox" v-model="health.verify_tls"> 校验证书链及主机名</label>
+      <input class="form-control" v-model="health.statuses" placeholder="允许状态码，逗号分隔；留空为2xx/3xx">
+      <input class="form-control" v-model="health.contains" placeholder="响应必须包含的文本，可留空" maxlength="1024">
+      <textarea class="form-control" v-model="health.probes" rows="3" placeholder="额外健康端点，每行一个URL，最多4个"></textarea>
+      <label>至少通过 <input type="number" min="1" max="5" v-model="health.quorum" style="width:65px"> 个端点</label>
+      <p class="help-block">所有端点共享最大超时时间。额外端点按自身DNS解析，用于交叉验证服务状态。</p>
+    </div></div>
     <div class="form-group" v-show="set.type<=2&&set.checktype>0">
         <label class="col-sm-3 control-label no-padding-right" is-required>最大超时时间</label>
         <div class="col-sm-3">
@@ -179,6 +187,7 @@ new Vue({
             proxy: 0,
             cdn: 0,
         },
+        health: {verify_tls:true,statuses:'',contains:'',probes:'',quorum:1},
         dnstype: null,
         domainList: domainList,
         recordList: [],
@@ -210,6 +219,9 @@ new Vue({
         }
     },
     mounted() {
+        if (info && info.health_options) {
+            try { var h = JSON.parse(info.health_options); this.health = Object.assign({}, this.health, h, {statuses:(h.statuses||[]).join(','), probes:(h.probes||[]).join('\n')}); } catch (e) {}
+        }
         if(this.action == 'edit'){
             Object.keys(info).forEach((key) => {
                 this.$set(this.set, key, info[key])
@@ -261,6 +273,7 @@ new Vue({
             });
         },
         submit(){
+            this.set.health_options = JSON.stringify(this.health);
             var that=this;
             $("#taskform").data("bootstrapValidator").validate();
             if(!$("#taskform").data("bootstrapValidator").isValid()){

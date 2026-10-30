@@ -6,7 +6,7 @@ use app\lib\DnsInterface;
 use app\lib\client\AWS as AWSClient;
 use Exception;
 
-class aws implements DnsInterface
+class aws implements DnsInterface, \app\lib\AtomicDns
 {
     private $AccessKeyId;
     private $SecretAccessKey;
@@ -14,6 +14,8 @@ class aws implements DnsInterface
     private $domain;
     private $domainid;
     private AWSClient $client;
+    private ?array $batchSets = null;
+    private array $batchOriginal = [];
 
     public function __construct($config)
     {
@@ -71,7 +73,7 @@ class aws implements DnsInterface
         }
         $list = [];
         foreach ($sets as $row) {
-            if (isset($row['AliasTarget']) || !empty($row['SetIdentifier'])) {
+            if (isset($row['AliasTarget']) || isset($row['SetIdentifier'])) {
                 continue;
             }
             $type = $row['Type'] ?? '';
@@ -177,7 +179,7 @@ class aws implements DnsInterface
         $ttl = $set ? intval($set['TTL']) : intval($TTL);
         if ($TTL) $ttl = intval($TTL);
         if ($this->changeRecordSets([[
-            'Action' => 'UPSERT',
+            'Action' => $set ? 'UPSERT' : 'CREATE',
             'Name' => $fqdn,
             'Type' => $type,
             'TTL' => $ttl,
@@ -217,9 +219,7 @@ class aws implements DnsInterface
                     break;
                 }
             }
-            if (!$replaced) {
-                $values[] = $newRaw;
-            }
+            if (!$replaced) { $this->setError('记录已改变，请刷新后重试'); return false; }
             $values = array_values(array_unique($values));
             return $this->changeRecordSets([[
                 'Action' => 'UPSERT',
@@ -230,10 +230,20 @@ class aws implements DnsInterface
             ]]);
         }
 
-        if (!$this->deleteDomainRecord($RecordId)) {
-            return false;
-        }
-        return $this->addDomainRecord($Name, $Type, $Value, $Line, $TTL, $MX, $Weight, $Remark);
+        $source = $this->getRecordSet($oldFqdn, $oldType);
+        $target = $this->getRecordSet($fqdn, $type);
+        if ($source === false || $target === false) return false;
+        $oldValues = $source ? $this->extractValues($source) : [];
+        if (!in_array($oldRaw, $oldValues, true)) { $this->setError('记录已改变，请刷新后重试'); return false; }
+        $remaining = array_values(array_filter($oldValues, fn($v)=>$v !== $oldRaw));
+        $newValues = $target ? $this->extractValues($target) : [];
+        if (in_array($newRaw, $newValues, true)) { $this->setError('已存在相同记录'); return false; }
+        $newValues[] = $newRaw;
+        // Route53 validates and commits the entire ChangeBatch atomically.
+        return $this->changeRecordSets([
+            ['Action'=>$remaining ? 'UPSERT' : 'DELETE', 'Name'=>$oldFqdn, 'Type'=>$oldType, 'TTL'=>(int)$source['TTL'], 'Values'=>$remaining ?: $oldValues],
+            ['Action'=>$target ? 'UPSERT' : 'CREATE', 'Name'=>$fqdn, 'Type'=>$type, 'TTL'=>(int)$TTL, 'Values'=>$newValues],
+        ]);
     }
 
     //修改解析记录备注
@@ -341,6 +351,7 @@ class aws implements DnsInterface
     {
         $list = [];
         $marker = null;
+        $seen = [];
         do {
             $params = ['maxitems' => '100'];
             if ($marker) {
@@ -356,19 +367,27 @@ class aws implements DnsInterface
             }
             $truncated = ($data['IsTruncated'] ?? 'false') === 'true';
             $marker = $truncated ? ($data['NextMarker'] ?? null) : null;
+            if ($truncated && (!$marker || isset($seen[$marker]))) { $this->setError('Route53域名分页游标无效');return false; }
+            if ($marker) $seen[$marker]=true;
         } while ($truncated && $marker);
         return $list;
     }
 
     private function listAllRecordSets()
     {
+        if ($this->batchSets !== null) return array_values($this->batchSets);
         $list = [];
         $params = ['maxitems' => '300'];
+        $seen = [];
         do {
+            $cursor=json_encode($params);
+            if (isset($seen[$cursor])) { $this->setError('Route53记录分页游标重复');return false; }
+            $seen[$cursor]=true;
             $data = $this->send_request('GET', '/hostedzone/' . $this->zoneId() . '/rrset', $params);
             if ($data === false) {
                 return false;
             }
+            if (!is_array($data) || !array_key_exists('ResourceRecordSets',$data)) { $this->setError('Route53记录列表响应无效');return false; }
             $sets = $this->xmlList($data['ResourceRecordSets'] ?? [], 'ResourceRecordSet');
             foreach ($sets as $set) {
                 $list[] = $set;
@@ -376,6 +395,7 @@ class aws implements DnsInterface
             $truncated = ($data['IsTruncated'] ?? 'false') === 'true';
             $params = ['maxitems' => '300'];
             if ($truncated) {
+                if (empty($data['NextRecordName']) || empty($data['NextRecordType'])) { $this->setError('Route53记录分页游标缺失');return false; }
                 if (!empty($data['NextRecordName'])) $params['name'] = $data['NextRecordName'];
                 if (!empty($data['NextRecordType'])) $params['type'] = $data['NextRecordType'];
                 if (!empty($data['NextRecordIdentifier'])) $params['identifier'] = $data['NextRecordIdentifier'];
@@ -386,7 +406,7 @@ class aws implements DnsInterface
 
     private function getRecordSet($fqdn, $type)
     {
-        $data = $this->send_request('GET', '/hostedzone/' . $this->zoneId() . '/rrset', [
+        $data = $this->batchSets !== null ? ['ResourceRecordSets'=>['ResourceRecordSet'=>array_values(array_filter($this->batchSets,fn($r)=>strcasecmp($r['Name'],$fqdn)===0 && $r['Type']===$type))]] : $this->send_request('GET', '/hostedzone/' . $this->zoneId() . '/rrset', [
             'name' => $fqdn,
             'type' => $type,
             'maxitems' => '1',
@@ -402,14 +422,23 @@ class aws implements DnsInterface
         if (strcasecmp(rtrim($set['Name'] ?? '', '.'), rtrim($fqdn, '.')) !== 0 || strtoupper($set['Type'] ?? '') !== strtoupper($type)) {
             return null;
         }
-        if (isset($set['AliasTarget']) || !empty($set['SetIdentifier'])) {
-            return null;
+        if (isset($set['AliasTarget']) || isset($set['SetIdentifier']) || (!empty($set['MultiValueAnswer']) && $set['MultiValueAnswer'] !== 'false') || isset($set['HealthCheckId']) || isset($set['TrafficPolicyInstanceId'])) {
+            $this->setError('目标记录包含Alias、路由或健康检查配置，请使用AWS控制台管理');
+            return false;
         }
         return $set;
     }
 
     private function changeRecordSets($changes)
     {
+        if ($this->batchSets !== null) {
+            foreach ($changes as $change) {
+                $key=strtolower($change['Name']).'|'.$change['Type'];
+                if ($change['Action']==='DELETE') unset($this->batchSets[$key]);
+                else $this->batchSets[$key]=['Name'=>$change['Name'],'Type'=>$change['Type'],'TTL'=>$change['TTL'],'ResourceRecords'=>['ResourceRecord'=>array_map(fn($v)=>['Value'=>$v],$change['Values'])]];
+            }
+            return true;
+        }
         $xml = '<?xml version="1.0" encoding="UTF-8"?>'
             . '<ChangeResourceRecordSetsRequest xmlns="https://route53.amazonaws.com/doc/2013-04-01/">'
             . '<ChangeBatch><Changes>';
@@ -429,6 +458,41 @@ class aws implements DnsInterface
         $data = $this->send_request('POST', '/hostedzone/' . $this->zoneId() . '/rrset', $xml);
         return $data !== false;
     }
+
+    public function beginAtomicBatch(): void
+    {
+        if ($this->batchSets !== null) throw new \RuntimeException('批量事务已经开始');
+        $sets=$this->listAllRecordSets();
+        if ($sets===false) throw new \RuntimeException($this->getError());
+        $this->batchOriginal=[];
+        foreach ($sets as $set) {
+            // Preserve separate routing sets, even though they cannot be edited here.
+            $key=strtolower($set['Name']).'|'.$set['Type'];
+            if (isset($set['SetIdentifier'])) $key.='|'.$set['SetIdentifier'];
+            $this->batchOriginal[$key]=$set;
+        }
+        $this->batchSets=$this->batchOriginal;
+    }
+
+    public function commitAtomicBatch(): bool
+    {
+        if ($this->batchSets===null) throw new \RuntimeException('批量事务尚未开始');
+        $changes=[];$count=0;
+        foreach (array_unique(array_merge(array_keys($this->batchOriginal),array_keys($this->batchSets))) as $key) {
+            $old=$this->batchOriginal[$key] ?? null;$new=$this->batchSets[$key] ?? null;
+            if ($old===$new) continue;
+            // DELETE carries the exact old RRset, so concurrent external edits reject the transaction.
+            foreach ([['DELETE',$old],['CREATE',$new]] as [$action,$set]) if ($set) {
+                $values=$this->extractValues($set);$count+=count($values);
+                $changes[]=['Action'=>$action,'Name'=>$set['Name'],'Type'=>$set['Type'],'TTL'=>$set['TTL'],'Values'=>$values];
+            }
+        }
+        $this->batchSets=null;$this->batchOriginal=[];
+        if ($count>1000) { $this->setError('批量请求超过Route53记录数量限制，请减少每批变更');return false; }
+        return !$changes || $this->changeRecordSets($changes);
+    }
+
+    public function cancelAtomicBatch(): void { $this->batchSets=null;$this->batchOriginal=[]; }
 
     private function extractValues($set)
     {
@@ -590,7 +654,8 @@ class aws implements DnsInterface
     private function send_request($method, $path, $params = [])
     {
         try {
-            return $this->client->requestXmlN($method, $path, $params);
+            $send = fn() => $this->client->requestXmlN($method, $path, $params);
+            return $method === 'GET' ? \app\lib\ProviderReadRetry::run($send) : $send();
         } catch (Exception $e) {
             $this->setError($e->getMessage());
             return false;

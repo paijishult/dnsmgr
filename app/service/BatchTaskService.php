@@ -153,7 +153,7 @@ class BatchTaskService
                 if (!$state['remaining_changes']) return;
                 self::authorize($identity, $domain);
                 if ($connection->name('batch_task')->where('id', $id)->value('cancel_requested')) { $cancelled = true; throw new \RuntimeException('任务已取消'); }
-                if (microtime(true) >= $deadline) { $yielded = true; throw new \RuntimeException('任务将在下一次计划任务继续'); }
+                if (empty($state['atomic_ready']) && microtime(true) >= $deadline) { $yielded = true; throw new \RuntimeException('任务将在下一次计划任务继续'); }
             };
             $result = (new DnsChangeService($connection))->applyPlan($domain, $dns, $plan, $task['actor'], $checkpoint);
             if ($checkpointFailure) throw $checkpointFailure;

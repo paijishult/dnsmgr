@@ -44,29 +44,7 @@ class MsgNotice
         }
         $mail_content .= '<br/><font color="grey">'.self::$sitename.'</font><br/><font color="grey">'.date('Y-m-d H:i:s').'</font>';
 
-        if (config_get('notice_mail') == 1) {
-            $mail_name = config_get('mail_recv') ? config_get('mail_recv') : config_get('mail_name');
-            self::send_mail($mail_name, $mail_title, $mail_content);
-        }
-        if (config_get('notice_wxtpl') == 1) {
-            $content = str_replace(['<br/>', '<b>', '</b>'], ["\n\n", '**', '**'], $mail_content);
-            self::send_wechat_tplmsg($mail_title, strip_tags($content));
-        }
-        if (config_get('notice_tgbot') == 1) {
-            $content = str_replace('<br/>', "\n", $mail_content);
-            $content = "<strong>".$mail_title."</strong>\n".strip_tags($content);
-            self::send_telegram_bot($content);
-        }
-        if (config_get('notice_qqbot') == 1) {
-            self::send_qqbot($mail_title, $mail_content);
-        }
-        if (config_get('notice_webhook') == 1) {
-            $content = str_replace(['<br/>', '<b>', '</b>'], ["\n", '**', '**'], $mail_content);
-            self::send_webhook($mail_title, $content);
-        }
-        if (config_get('notice_custom_webhook') == 1) {
-            self::send_custom_webhook($mail_title, $mail_content);
-        }
+        self::queue('monitor:' . $task['id'] . ':' . $action . ':' . ($task['switchtime'] ?? time()), $mail_title, $mail_content, 'notice_', true);
     }
 
     public static function cert_order_send($id, $result)
@@ -105,13 +83,13 @@ class MsgNotice
         }
         $mail_content .= '<br/><font color="grey">'.self::$sitename.'</font><br/><font color="grey">'.date('Y-m-d H:i:s').'</font>';
 
-        self::cert_send($mail_title, $mail_content, $result);
-        Db::name('cert_order')->where('id', $id)->update(['issend' => 1]);
+        $where = ['id'=>$id, 'status'=>$row['status'], 'expiretime'=>$row['expiretime'], 'issuetime'=>$row['issuetime'], 'error'=>$row['error']];
+        if (self::queue('cert-order:' . $id . ':' . hash('sha256', json_encode($row)), $mail_title, $mail_content, 'cert_notice_', $result, ['table'=>'cert_order','where'=>$where,'update'=>['issend'=>1]])) Db::name('cert_order')->where($where)->update(['issend'=>1]);
     }
 
     public static function cert_deploy_send($id, $result)
     {
-        $row = Db::name('cert_deploy')->field('id,aid,oid,remark,status,error')->where('id', $id)->find();
+        $row = Db::name('cert_deploy')->field('id,aid,oid,remark,status,error,lasttime')->where('id', $id)->find();
         if (!$row) return;
         $account = Db::name('cert_account')->field('id,type,name,remark')->where('id', $row['aid'])->find();
         if (!$account) return;
@@ -130,35 +108,32 @@ class MsgNotice
         }
         $mail_content .= '<br/><font color="grey">'.self::$sitename.'</font><br/><font color="grey">'.date('Y-m-d H:i:s').'</font>';
 
-        self::cert_send($mail_title, $mail_content, $result);
-        Db::name('cert_deploy')->where('id', $id)->update(['issend' => 1]);
+        $where = ['id'=>$id, 'status'=>$row['status'], 'lasttime'=>$row['lasttime'], 'error'=>$row['error']];
+        if (self::queue('cert-deploy:' . $id . ':' . hash('sha256', json_encode($row)), $mail_title, $mail_content, 'cert_notice_', $result, ['table'=>'cert_deploy','where'=>$where,'update'=>['issend'=>1]])) Db::name('cert_deploy')->where($where)->update(['issend'=>1]);
     }
 
-    private static function cert_send($mail_title, $mail_content, $result)
+    public static function queue(string $event, string $title, string $content, string $prefix = 'notice_', bool $success = false, array $ack = []): bool
     {
-        if (config_get('cert_notice_mail') == 1 || config_get('cert_notice_mail') == 2 && !$result) {
-            $mail_name = config_get('mail_recv') ? config_get('mail_recv') : config_get('mail_name');
-            self::send_mail($mail_name, $mail_title, $mail_content);
+        $channels = [];
+        foreach (['mail','wxtpl','tgbot','qqbot','webhook','custom_webhook'] as $channel) {
+            $mode = (int)config_get($prefix . $channel, 0);
+            if ($mode === 1 || ($mode === 2 && !$success)) $channels[] = $channel;
         }
-        if (config_get('cert_notice_wxtpl') == 1 || config_get('cert_notice_wxtpl') == 2 && !$result) {
-            $content = str_replace(['<br/>', '<b>', '</b>'], ["\n\n", '**', '**'], $mail_content);
-            self::send_wechat_tplmsg($mail_title, strip_tags($content));
-        }
-        if (config_get('cert_notice_tgbot') == 1 || config_get('cert_notice_tgbot') == 2 && !$result) {
-            $content = str_replace('<br/>', "\n", $mail_content);
-            $content = "<strong>".$mail_title."</strong>\n".strip_tags($content);
-            self::send_telegram_bot($content);
-        }
-        if (config_get('cert_notice_qqbot') == 1 || config_get('cert_notice_qqbot') == 2 && !$result) {
-            self::send_qqbot($mail_title, $mail_content);
-        }
-        if (config_get('cert_notice_webhook') == 1) {
-            $content = str_replace(['*', '<br/>', '<b>', '</b>'], ['\*', "\n", '**', '**'], $mail_content);
-            self::send_webhook($mail_title, $content);
-        }
-        if (config_get('cert_notice_custom_webhook') == 1 || config_get('cert_notice_custom_webhook') == 2 && !$result) {
-            self::send_custom_webhook($mail_title, $mail_content);
-        }
+        return \app\service\NotificationService::enqueue($event, $title, $content, $channels, $ack);
+    }
+
+    public static function deliver(string $channel, string $title, string $content)
+    {
+        $plain = strip_tags(str_replace('<br/>', "\n", $content));
+        return match ($channel) {
+            'mail'=>self::send_mail(config_get('mail_recv') ?: config_get('mail_name'), $title, $content),
+            'wxtpl'=>self::send_wechat_tplmsg($title, $plain),
+            'tgbot'=>self::send_telegram_bot(htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . "\n" . htmlspecialchars($plain, ENT_QUOTES, 'UTF-8')),
+            'qqbot'=>self::send_qqbot($title, $content),
+            'webhook'=>self::send_webhook($title, $plain),
+            'custom_webhook'=>self::send_custom_webhook($title, $content),
+            default=>throw new \RuntimeException('不支持的通知渠道'),
+        };
     }
 
     public static function expire_notice_send($day, $list)
@@ -170,28 +145,11 @@ class MsgNotice
         }
         $mail_content .= '<br/><font color="grey">'.self::$sitename.'</font><br/><font color="grey">'.date('Y-m-d H:i:s').'</font>';
 
-        if (config_get('expire_notice_mail') == 1 || config_get('expire_notice_mail') == 2) {
-            $mail_name = config_get('mail_recv') ? config_get('mail_recv') : config_get('mail_name');
-            self::send_mail($mail_name, $mail_title, $mail_content);
-        }
-        if (config_get('expire_notice_wxtpl') == 1 || config_get('expire_notice_wxtpl') == 2) {
-            $content = str_replace(['<br/>', '<b>', '</b>'], ["\n\n", '**', '**'], $mail_content);
-            self::send_wechat_tplmsg($mail_title, strip_tags($content));
-        }
-        if (config_get('expire_notice_tgbot') == 1 || config_get('expire_notice_tgbot') == 2) {
-            $content = str_replace('<br/>', "\n", $mail_content);
-            $content = "<strong>".$mail_title."</strong>\n".strip_tags($content);
-            self::send_telegram_bot($content);
-        }
-        if (config_get('expire_notice_qqbot') == 1 || config_get('expire_notice_qqbot') == 2) {
-            self::send_qqbot($mail_title, $mail_content);
-        }
-        if (config_get('expire_notice_webhook') == 1) {
-            $content = str_replace(['*', '<br/>', '<b>', '</b>'], ['\*', "\n", '**', '**'], $mail_content);
-            self::send_webhook($mail_title, $content);
-        }
-        if (config_get('expire_notice_custom_webhook') == 1) {
-            self::send_custom_webhook($mail_title, $mail_content);
+        foreach ($list as $domain) {
+            $where = ['id'=>$domain['id'], 'expiretime'=>$domain['expiretime']];
+            $content = htmlspecialchars($domain['name'], ENT_QUOTES, 'UTF-8') . ' 将在' . $day . '天后到期，到期时间：' . $domain['expiretime'];
+            $ack = ['table'=>'domain','where'=>$where,'update'=>['noticetime'=>date('Y-m-d H:i:s')]];
+            if (self::queue('domain-expire:' . $domain['id'] . ':' . $domain['expiretime'] . ':' . date('Y-m-d'), '域名到期提醒', $content, 'expire_notice_', false, $ack)) Db::name('domain')->where($where)->update($ack['update']);
         }
     }
 

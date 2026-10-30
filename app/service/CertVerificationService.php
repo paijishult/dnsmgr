@@ -7,6 +7,28 @@ class CertVerificationService
     public static function normalizeConfig($value, array $domains): array
     {
         if (!is_array($value) || !in_array($value['enabled'] ?? false, [true, 1, '1', 'true', 'on'], true)) return ['enabled' => false];
+        if (!empty($value['targets'])) {
+            $rows = $value['targets'];
+            if (is_string($rows)) $rows = array_values(array_filter(array_map('trim', explode("\n", $rows)), 'strlen'));
+            if (!is_array($rows) || !$rows || count($rows)>20) throw new \InvalidArgumentException('请配置1到20个验收目标');
+            $targets=[];
+            foreach ($rows as $row) {
+                if (is_string($row)) {
+                    if (!preg_match('/\A([^:@\s]+)(?::(443|8443))?(?:@([^\s]+))?\z/D', $row, $m)) throw new \InvalidArgumentException('目标格式应为域名:端口@源站IP');
+                    $row=['host'=>$m[1],'port'=>($m[2] ?? '') ?: 443,'address'=>$m[3] ?? ''];
+                }
+                if (!is_array($row)) throw new \InvalidArgumentException('验收目标无效');
+                $target=self::normalizeConfig(['enabled'=>true,'host'=>$row['host'] ?? '', 'port'=>$row['port'] ?? 443,'timeout'=>min(10,(int)($value['timeout'] ?? 5))],$domains);
+                $address=trim((string)($row['address'] ?? ''));
+                if ($address!=='' && !self::isPublicAddress($address)) throw new \InvalidArgumentException('源站验收仅支持公网IP');
+                $target['address']=$address;
+                $targets[$target['host'].':'.$target['port'].'@'.$address]=$target;
+            }
+            $targets=array_values($targets); $first=$targets[0];
+            $timeout=filter_var($value['timeout'] ?? 10,FILTER_VALIDATE_INT);
+            if ($timeout===false || $timeout<1 || $timeout>60) throw new \InvalidArgumentException('多目标验收总超时应为1到60秒');
+            return ['enabled'=>true,'host'=>$first['host'],'port'=>$first['port'],'timeout'=>$timeout,'targets'=>$targets,'mode'=>'all'];
+        }
         $host = strtolower(rtrim(trim((string)($value['host'] ?? '')), '.'));
         if (function_exists('idn_to_ascii')) $host = idn_to_ascii($host, 0, INTL_IDNA_VARIANT_UTS46) ?: $host;
         if (strlen($host) > 253 || !preg_match('/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/D', $host) || filter_var($host, FILTER_VALIDATE_IP)) throw new \InvalidArgumentException('验收目标必须是证书域名，不能包含协议、路径或IP地址');
@@ -53,6 +75,7 @@ class CertVerificationService
 
     public function verify(array $config, string $expectedFingerprint): array
     {
+        if (!empty($config['targets'])) return $this->verifyMatrix($config, $expectedFingerprint);
         $result = ['status' => 'failed', 'host' => $config['host'], 'port' => $config['port'], 'expected_sha256' => $expectedFingerprint, 'observed_sha256' => null, 'checked_at' => date('Y-m-d H:i:s'), 'error' => null];
         $deadline = microtime(true) + $config['timeout'];
         try {
@@ -72,6 +95,32 @@ class CertVerificationService
             $result['error'] = mb_strcut(str_replace(["\r", "\n"], '', $e->getMessage()), 0, 300);
             return $result;
         }
+    }
+
+    private function verifyMatrix(array $config, string $expected): array
+    {
+        $result=['status'=>'failed','host'=>$config['host'],'port'=>$config['port'],'expected_sha256'=>$expected,'observed_sha256'=>null,'checked_at'=>date('Y-m-d H:i:s'),'error'=>null,'targets'=>[]];
+        $deadline=microtime(true)+$config['timeout'];
+        foreach ($config['targets'] as $target) {
+            try { $addresses=$target['address']!=='' ? [$target['address']] : $this->resolvePublicAddresses($target['host'],$deadline); }
+            catch (\Throwable $e) { $result['targets'][]=['host'=>$target['host'],'port'=>$target['port'],'address'=>null,'status'=>'failed','error'=>$e->getMessage()]; continue; }
+            foreach ($addresses as $address) {
+                $row=['host'=>$target['host'],'port'=>$target['port'],'address'=>$address,'status'=>'failed','expected_sha256'=>$expected,'observed_sha256'=>null,'expires_at'=>null,'error'=>null];
+                try {
+                    $pem=$this->readCertificate($target,$address,$deadline);
+                    $row['observed_sha256']=self::fingerprint($pem);
+                    $parsed=openssl_x509_parse($pem);
+                    $row['expires_at']=isset($parsed['validTo_time_t']) ? date('Y-m-d H:i:s',$parsed['validTo_time_t']) : null;
+                    if (!hash_equals($expected,$row['observed_sha256'])) throw new \RuntimeException('线上证书指纹不一致');
+                    $row['status']='passed';
+                } catch (\Throwable $e) { $row['error']=mb_substr($e->getMessage(),0,300); }
+                $result['targets'][]=$row;
+            }
+        }
+        $failed=array_filter($result['targets'],fn($r)=>$r['status']!=='passed');
+        if (!$failed && $result['targets']) { $result['status']='passed';$result['observed_sha256']=$expected; }
+        else $result['error']='验收未通过：' . count($failed) . '/' . count($result['targets']) . ' 个目标';
+        return $result;
     }
 
     protected function resolvePublicAddresses(string $host, float $deadline): array
@@ -101,7 +150,9 @@ class CertVerificationService
             }
         }
         if (!$addresses) throw new \RuntimeException('验收目标没有公网A或AAAA记录');
-        return array_slice(array_unique($addresses), 0, 4);
+        $addresses = array_values(array_unique($addresses));
+        if (count($addresses)>16) throw new \RuntimeException('验收地址超过16个，请配置明确的源站IP');
+        return $addresses;
     }
 
     protected function readCertificate(array $config, string $address, float $deadline): string

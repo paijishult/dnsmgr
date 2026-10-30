@@ -33,6 +33,35 @@ class TaskLockService
     }
 
     /** A dedicated non-reconnecting connection keeps the lock on its original session. */
+    public static function mutateMany(string $resource, array $ids, callable $mutation)
+    {
+        foreach ($ids as $id) if (!is_scalar($id) || filter_var($id, FILTER_VALIDATE_INT) === false || (int)$id <= 0) throw new \InvalidArgumentException('任务ID无效');
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (!$ids) throw new \InvalidArgumentException('任务ID无效');
+        if (count($ids) > 50) throw new \InvalidArgumentException('单次最多操作50个任务，请分批处理');
+        sort($ids, SORT_NUMERIC);
+        $held = [];
+        try {
+            foreach ($ids as $id) {
+                // MySQL 5.6 allows only one advisory lock per physical connection.
+                $db = self::connection();
+                $lock = new self($db, $resource . ':' . $id);
+                $held[] = [$db, $lock];
+                $lock->acquire();
+            }
+            return $mutation();
+        } finally {
+            foreach (array_reverse($held) as [$db, $lock]) {
+                try { $lock->release(); }
+                catch (\Throwable $e) { error_log('Task lock release: ' . \app\lib\SensitiveLog::filter($e->getMessage())); }
+                finally {
+                    try { $db->close(); }
+                    catch (\Throwable $e) { error_log('Task connection close: ' . \app\lib\SensitiveLog::filter($e->getMessage())); }
+                }
+            }
+        }
+    }
+
     public static function connection()
     {
         $config = config('database.connections.mysql');

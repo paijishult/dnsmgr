@@ -35,6 +35,17 @@ class AuthApi
         $keyid = input('post.keyid');
         $keyid = is_string($keyid) ? trim($keyid) : '';
         $uid = input('post.uid/d');
+        $version = method_exists($request, 'header') ? $request->header('x-dnsmgr-version', '') : '';
+        if ($version !== '' && $version !== '2') return json(['code'=>-1,'msg'=>'不支持的签名版本'])->code(403);
+        if ($version === '2') {
+            $keyid = (string)$request->header('x-dnsmgr-keyid', '');
+            $uid = (int)$request->header('x-dnsmgr-uid', '0');
+            $timestamp = $request->header('x-dnsmgr-timestamp', '');
+            $sign = $request->header('x-dnsmgr-signature', '');
+            if ($keyid !== '' && $uid) return json(['code'=>-1,'msg'=>'只能提供一种API身份'])->code(403);
+        }
+        $request->apiSignatureVersion = $version;
+
         if ((!$uid && $keyid === '') || empty($timestamp) || empty($sign) || !is_numeric($timestamp)) {
             $request->auditApiDenied = true;
             return json(['code' => -1, 'msg' => '认证参数不能为空'])->code(403);
@@ -73,6 +84,7 @@ class AuthApi
         }
         $request->withPost($post);
 
+        $invoke = function () use ($request, $next) {
         $response = $next($request);
 
         // 安全兜底：API返回内容中如果出现系统里保存的任何密钥值（账户密钥、用户API密钥、系统密钥等），一律替换为 ******
@@ -85,6 +97,8 @@ class AuthApi
         } catch (\Throwable $e) {
         }
         return $response->header(empty($request->apiKey) ? [] : ($request->apiRateHeaders ?? []));
+        };
+        return !empty($request->apiV2) ? \app\service\ApiRequestService::execute($request, $invoke) : $invoke();
     }
 
     /**
@@ -102,7 +116,7 @@ class AuthApi
         if ($user['is_api'] == 0 || empty($user['apikey'])) {
             return [403, '该用户未开启API权限', true];
         }
-        if (!is_string($sign) || !hash_equals(md5($uid . $timestamp . $user['apikey']), strtolower($sign))) {
+        if (($request->apiSignatureVersion ?? '') === '2' ? !\app\lib\ApiSignature::verify($request, 'uid:' . $uid, $user['apikey']) : (!is_string($sign) || !hash_equals(md5($uid . $timestamp . $user['apikey']), strtolower($sign)))) {
             return [403, '签名错误', true];
         }
 
@@ -138,7 +152,7 @@ class AuthApi
         if (!$row) {
             return [403, 'API密钥不存在', true];
         }
-        if (!ApiKeyHelper::checkSign($keyid, $timestamp, $sign, $row['secret'])) {
+        if (($request->apiSignatureVersion ?? '') === '2' ? !(($secret = ApiKeyHelper::decrypt($row['secret'])) !== false && \app\lib\ApiSignature::verify($request, 'keyid:' . $keyid, $secret)) : !ApiKeyHelper::checkSign($keyid, $timestamp, $sign, $row['secret'])) {
             return [403, '签名错误', true];
         }
         if ($row['status'] != 1) {

@@ -8,7 +8,7 @@ use think\facade\Db;
 /** Idempotent additive migration. Never mark a partially-created schema ready. */
 class FeatureMigrationService
 {
-    public const VERSION = '20261020.1';
+    public const VERSION = '20261025.1';
 
     public static function ensure(): void
     {
@@ -26,9 +26,11 @@ class FeatureMigrationService
             foreach (explode(';', $source) as $statement) {
                 if (trim($statement) !== '') $connection->execute(str_replace('dnsmgr_', $prefix, $statement));
             }
+            ReliabilityMigrationService::apply($connection, $prefix);
             $connection->name('dns_snapshot')->field('id,did,uid,domain,aid,thirdid,label,record_count,records,checksum,addtime')->where('id', 0)->select();
             $connection->name('batch_task')->field('id,uid,kid,did,actor,name,identity,plan,results,total,completed,status,cancel_requested,attempts,error,snapshot_id,addtime,updatetime,expiretime')->where('id', 0)->select();
             $connection->name('cert_dns_lease')->field('oid,claim,did,aid,thirdid,domain,rr,type,value,managed')->where('oid', 0)->select();
+            foreach (['notification_job'=>'id,dedup,event,channel,payload,status,attempts,nexttime,addtime,error','api_nonce'=>'id,expires','api_receipt'=>'id,digest,authorization,status,body,http_code,expires','dns_watch'=>'did,enabled,identity,checksum,baseline,observed,diff,error,interval_seconds,checked_at,nexttime,alert_signature','credential_health'=>'kind,aid,enabled,expires_at,rotated_at,rotation_days,version,status,error,checked_at,nexttime,alert_signature'] as $table=>$fields) $connection->name($table)->field($fields)->limit(1)->select();
             $connection->name('config')->replace()->insert(['key' => 'native_features', 'value' => self::VERSION]);
             Config::set(['native_features' => self::VERSION], 'sys');
             Cache::delete('configs');

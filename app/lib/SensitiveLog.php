@@ -15,6 +15,8 @@ class SensitiveLog
         // Old SSH logs contain positional passwords, without a password= label.
         $text = preg_replace('/\bcertutil(?:\.exe)?\s+[^\r\n]*/i', 'certutil [参数已隐藏]', $text);
         $text = preg_replace('/-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----/s', '[PRIVATE KEY]', $text);
+        // Legacy panel adapters logged the complete authenticated cookie jar.
+        $text = preg_replace('/(\b(?:set-cookie|cookie)\s*[:=]\s*)[^\r\n]*/i', '$1******', $text);
         // Download URLs are bearer credentials even when the path is opaque
         // and the query parameter is named signature, rather than token.
         $text = preg_replace('~https?:(?://|\\\\/\\\\/)[^\s<>"\x27]+~i', '[URL]', $text);
@@ -30,7 +32,7 @@ REGEX;
         $values = [];
         foreach ($config as $key => $value) {
             if (is_array($value)) $values = array_merge($values, self::secrets($value));
-            elseif (is_string($value) && preg_match('/(?:password|passwd|secret|token|authorization|apikey|api_key|accesskey|access_key|privatekey|private_key|signature|keydata|keybase64|ssl_key|pfx_pass|passphrase)$/i', (string)$key)) $values[] = $value;
+            elseif (is_string($value) && preg_match('/(?:password|passwd|secret|token|authorization|key|signature|keydata|keybase64|pfx_pass|passphrase)$/i', (string)$key)) $values[] = $value;
         }
         return $values;
     }

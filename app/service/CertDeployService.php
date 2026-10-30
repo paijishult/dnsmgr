@@ -14,6 +14,7 @@ class CertDeployService
     private $info;
     private $executionLock;
     private ?\Closure $authorization;
+    private array $accountSecrets = [];
 
     // 0:待部署 1:部署并验收成功 2:部署完成待验收 -1:部署失败
     public function __construct($tid, ?\Closure $authorization = null)
@@ -96,10 +97,31 @@ class CertDeployService
     // 部署与验收分开保存状态，验收失败不能重新执行有副作用的部署。
     public function deploy($fullchain, $privatekey, array $verification = [], ?string $expected = null)
     {
-        $this->client->setLogger(function ($txt) { $this->saveLog($txt); });
         $this->saveLog(date('Y-m-d H:i:s'));
         $config = json_decode($this->task['config'], true);
+        $account = $this->db->name('cert_account')->where('id', $this->task['aid'])->find();
+        if (!$account) throw new Exception('部署账户已删除', 102);
+        // Construct the client and receipt context from the same account snapshot.
+        $this->client = DeployHelper::getModel2($account['type'], json_decode($account['config'] ?? '{}', true) ?: []);
+        if (!$this->client) throw new Exception('部署账户类型不存在', 102);
+        $this->client->setLogger(function ($txt) { $this->saveLog($txt); });
+        $this->accountSecrets = array_merge(
+            \app\lib\SensitiveLog::secrets(json_decode($account['config'] ?? '{}', true) ?: []),
+            \app\lib\SensitiveLog::secrets(json_decode($account['ext'] ?? '{}', true) ?: []),
+            [$privatekey, base64_encode($privatekey)]
+        );
+        $targetConfig = $config;
+        unset($targetConfig['_verify_tls']);
+        $context = hash('sha256', json_encode([$this->task['aid'], $targetConfig, $account['type'], $account['config'] ?? '', $account['ext'] ?? '']));
+        if (($this->info['_targets_context'] ?? '') !== $context) {
+            unset($this->info['_targets'], $this->info['_targets_version']);
+            $this->info['_targets_context'] = $context;
+        }
         $config['domainList'] = $this->db->name('cert_domain')->where('oid', $this->task['oid'])->order('sort', 'asc')->column('domain');
+        if (in_array($account['type'] ?? '', ['lucky','btpanel','ratpanel','kangle','kangleadmin'], true)) {
+            $config['_checkpoint'] = function () { $this->saveInfo(); };
+            $config['_redact_error'] = fn($text) => \app\lib\SensitiveLog::filter($text, $this->accountSecrets);
+        }
         unset($config['_verify_tls']);
         unset($this->info['_tls_verification']);
         try {
@@ -110,6 +132,7 @@ class CertDeployService
             throw $e;
         }
         $status = empty($verification['enabled']) ? 1 : 2;
+        $this->info['_certificate_sha256'] = $expected ?? CertVerificationService::fingerprint($fullchain);
         if ($status === 2) {
             $this->info['_tls_verification'] = ['status' => 'pending', 'host' => $verification['host'], 'port' => $verification['port'], 'expected_sha256' => $expected, 'observed_sha256' => null, 'checked_at' => null, 'error' => null];
         }
@@ -138,6 +161,10 @@ class CertDeployService
         $this->lockTaskData();
         try {
             $status = (int)$this->task['status'] === 2 ? 2 : 0;
+            if ((int)$this->task['status'] === 1) {
+                unset($this->info['_targets'], $this->info['_targets_version']);
+                $this->saveInfo();
+            }
             $this->db->name('cert_deploy')->where('id', $this->task['id'])->update(['status' => $status, 'retry' => 0, 'retrytime' => null, 'issend' => 0]);
             $this->task['status'] = $status;
             $this->task['retry'] = 0;
@@ -151,12 +178,16 @@ class CertDeployService
 
     private function saveInfo(): void
     {
+        foreach ($this->info['_targets'] ?? [] as $key=>$target) {
+            if (!empty($target['error'])) $this->info['_targets'][$key]['error'] = \app\lib\SensitiveLog::filter($target['error'], $this->accountSecrets);
+        }
         $this->db->name('cert_deploy')->where('id', $this->task['id'])->update(['info' => json_encode($this->info)]);
     }
 
     private function saveResult($status, $error = null, $retrytime = null)
     {
         $this->task['status'] = $status;
+        if ($error) $error = \app\lib\SensitiveLog::filter($error, $this->accountSecrets);
         if (!empty($error) && strlen($error) > 300) $error = mb_strcut($error, 0, 300);
         $update = ['status' => $status, 'error' => $error ? str_replace(["\r", "\n"], '', $error) : null, 'retrytime' => $retrytime];
         if ($status == 1) { $update['retry'] = 0; $update['lasttime'] = date('Y-m-d H:i:s'); $this->task['retry'] = 0; }
@@ -196,7 +227,7 @@ class CertDeployService
     private function saveLog($txt)
     {
         $config = json_decode((string)($this->task['config'] ?? '{}'), true);
-        $txt = \app\lib\SensitiveLog::filter((string)$txt, \app\lib\SensitiveLog::secrets(is_array($config) ? $config : []));
+        $txt = \app\lib\SensitiveLog::filter((string)$txt, array_merge($this->accountSecrets, \app\lib\SensitiveLog::secrets(is_array($config) ? $config : [])));
         if (empty($this->task['processid'])) return;
         if (!is_dir(app()->getRuntimePath() . 'log')) mkdir(app()->getRuntimePath() . 'log', 0750, true);
         $file_name = app()->getRuntimePath() . 'log/' . $this->task['processid'] . '.log';

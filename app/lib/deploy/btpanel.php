@@ -42,53 +42,13 @@ class btpanel implements DeployInterface
             return;
         }
 
-        $sites = explode("\n", $config['sites']);
-        $success = 0;
-        $errmsg = null;
-        foreach ($sites as $site) {
-            $siteName = trim($site);
-            if (empty($siteName)) continue;
-            if ($config['type'] == '4') {
-                try {
-                    $this->deployProxy($siteName, $fullchain, $privatekey);
-                    $this->log("反向代理站点 {$siteName} 证书部署成功");
-                    $success++;
-                } catch (Exception $e) {
-                    $errmsg = $e->getMessage();
-                    $this->log("反向代理站点 {$siteName} 证书部署失败：" . $errmsg);
-                }
-            } elseif ($config['type'] == '3') {
-                try {
-                    $this->deployDocker($siteName, $fullchain, $privatekey);
-                    $this->log("Docker域名 {$siteName} 证书部署成功");
-                    $success++;
-                } catch (Exception $e) {
-                    $errmsg = $e->getMessage();
-                    $this->log("Docker域名 {$siteName} 证书部署失败：" . $errmsg);
-                }
-            } elseif ($config['type'] == '2') {
-                try {
-                    $this->deployMailSys($siteName, $fullchain, $privatekey);
-                    $this->log("邮局域名 {$siteName} 证书部署成功");
-                    $success++;
-                } catch (Exception $e) {
-                    $errmsg = $e->getMessage();
-                    $this->log("邮局域名 {$siteName} 证书部署失败：" . $errmsg);
-                }
-            } else {
-                try {
-                    $this->deploySite($siteName, $fullchain, $privatekey);
-                    $this->log("网站 {$siteName} 证书部署成功");
-                    $success++;
-                } catch (Exception $e) {
-                    $errmsg = $e->getMessage();
-                    $this->log("网站 {$siteName} 证书部署失败：" . $errmsg);
-                }
-            }
-        }
-        if ($success == 0) {
-            throw new Exception($errmsg ? $errmsg : '要部署的网站不存在');
-        }
+        $targets = [];
+        foreach (explode("\n", $config['sites']) as $site) if (trim($site) !== '') $targets[$config['type'] . ':' . trim($site)] = trim($site);
+        \app\lib\DeploymentTargets::run($fullchain, $targets, $info, function ($site) use ($config, $fullchain, $privatekey) {
+            $method = match ((string)$config['type']) { '4'=>'deployProxy', '3'=>'deployDocker', '2'=>'deployMailSys', default=>'deploySite' };
+            $this->$method($site, $fullchain, $privatekey);
+            $this->log("网站 {$site} 证书部署成功");
+        }, $config['_checkpoint'] ?? null, $config['_redact_error'] ?? null);
     }
 
     private function deployPanel($fullchain, $privatekey)

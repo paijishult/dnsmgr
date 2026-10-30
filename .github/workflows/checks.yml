@@ -151,3 +151,4 @@ jobs:
         run: |
           php tests/tasks_mysql_integration_test.php
           php tests/legacy_migration_mysql_test.php
+          php tests/reliability_schema_mysql_test.php

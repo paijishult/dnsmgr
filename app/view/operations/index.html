@@ -1,0 +1,45 @@
+{extend name="common/layout" /}
+{block name="title"}运行中心{/block}
+{block name="main"}
+<div class="panel panel-default">
+  <div class="panel-heading"><strong>运行中心</strong> <span class="pull-right text-muted" id="opsHeartbeat"></span></div>
+  <div class="panel-body">
+    <ul class="nav nav-tabs" id="opsTabs">
+      <li class="active"><a href="#" data-panel="tasks">全部任务</a></li><li><a href="#" data-panel="conflicts">任务冲突</a></li>
+      <li><a href="#" data-panel="matrix">证书部署矩阵</a></li><li><a href="#" data-panel="drift">DNS漂移</a></li>
+      <li><a href="#" data-panel="credentials">凭据健康</a></li><li><a href="#" data-panel="notifications">通知队列</a></li>
+    </ul>
+    <div class="form-inline" style="margin:16px 0">
+      <select class="form-control" id="opsKind" aria-label="任务类型"><option value="">所有类型</option><option value="batch">批量解析</option><option value="monitor">容灾监控</option><option value="schedule">定时切换</option><option value="optimize">优选IP</option><option value="order">证书签发</option><option value="deploy">证书部署</option></select>
+      <input type="search" class="form-control" id="opsSearch" placeholder="筛选当前列表" aria-label="筛选当前列表">
+      <button type="button" class="btn btn-default" id="opsRefresh">刷新</button>
+    </div>
+    <form class="form-inline" id="watchForm" style="display:none;margin-bottom:16px">
+      <label for="watchDomain">域名</label> <select class="form-control" id="watchDomain" required><option value="">请选择域名</option>{foreach $domains as $domain}<option value="{$domain.id}">{$domain.name}</option>{/foreach}</select>
+      <label for="watchInterval">检查间隔（秒）</label> <input class="form-control" type="number" id="watchInterval" value="3600" min="300" max="86400" required>
+      <button class="btn btn-primary" type="submit">建立基线并启用</button>
+    </form>
+    <p class="text-muted" id="opsHelp"></p>
+    <div id="opsMessage" role="status" aria-live="polite"></div>
+    <p class="visible-xs text-muted">左右滑动表格可查看全部列。</p>
+    <div class="table-responsive"><table class="table table-striped table-hover" id="opsTable" style="min-width:900px"><thead></thead><tbody></tbody></table></div>
+  </div>
+</div>
+<div class="modal fade" id="opsDetails" tabindex="-1" role="dialog" aria-labelledby="opsDetailsTitle"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header"><button class="close" type="button" data-dismiss="modal" aria-label="关闭">&times;</button><h4 id="opsDetailsTitle">详情</h4></div>
+  <div class="modal-body" id="opsDetailsBody" style="overflow-wrap:anywhere"></div>
+  <div class="modal-footer"><button class="btn btn-default" data-dismiss="modal">关闭</button></div>
+</div></div></div>
+<div class="modal fade" id="credentialModal" tabindex="-1" role="dialog" aria-labelledby="credentialTitle"><div class="modal-dialog"><div class="modal-content"><form id="credentialForm">
+  <div class="modal-header"><button class="close" type="button" data-dismiss="modal" aria-label="关闭">&times;</button><h4 id="credentialTitle">凭据检查设置</h4></div>
+  <div class="modal-body">
+    <label><input type="checkbox" id="credentialEnabled"> 每天检查并在异常或临近到期时通知</label>
+    <div class="form-group"><label for="credentialExpires">凭据到期日期（可留空）</label><input type="date" id="credentialExpires" class="form-control"></div>
+    <div class="form-group"><label for="credentialRotated">最近轮换日期</label><input type="date" id="credentialRotated" class="form-control"></div>
+    <div class="form-group"><label for="credentialDays">建议轮换周期（天）</label><input type="number" min="7" max="730" value="90" id="credentialDays" class="form-control" required></div>
+    <p class="text-muted">这里只保存检查与提醒设置，不修改平台密钥。API密钥使用自身有效期。未提供只读探测的证书/部署平台会明确提示人工核对。</p>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">取消</button><button class="btn btn-primary" type="submit">保存</button></div>
+</form></div></div></div>
+{/block}
+{block name="script"}<script src="/static/js/operations.js?v={:config('app.version')}"></script>{/block}

@@ -41,24 +41,12 @@ class ratpanel implements DeployInterface
             $this->log("面板证书部署成功");
             return;
         }
-        $sites = explode("\n", $config['sites']);
-        $success = 0;
-        $errmsg = null;
-        foreach ($sites as $site) {
-            $site = trim($site);
-            if (empty($site)) continue;
-            try {
-                $this->deploySite($site, $fullchain, $privatekey);
-                $this->log("网站 {$site} 证书部署成功");
-                $success++;
-            } catch (Exception $e) {
-                $errmsg = $e->getMessage();
-                $this->log("网站 {$site} 证书部署失败：" . $errmsg);
-            }
-        }
-        if ($success == 0) {
-            throw new Exception($errmsg ?: '要部署的网站不存在');
-        }
+        $targets = [];
+        foreach (explode("\n", $config['sites']) as $site) if (trim($site) !== '') $targets[trim($site)] = trim($site);
+        \app\lib\DeploymentTargets::run($fullchain, $targets, $info, function ($site) use ($fullchain, $privatekey) {
+            $this->deploySite($site, $fullchain, $privatekey);
+            $this->log("网站 {$site} 证书部署成功");
+        }, $config['_checkpoint'] ?? null, $config['_redact_error'] ?? null);
     }
 
     private function deployPanel($fullchain, $privatekey)

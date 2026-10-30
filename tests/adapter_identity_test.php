@@ -1,4 +1,6 @@
 <?php
+require_once __DIR__.'/../app/lib/AtomicDns.php';
+require_once __DIR__.'/../app/lib/ProviderReadRetry.php';
 require __DIR__.'/../app/lib/DnsInterface.php';require __DIR__.'/../app/lib/dns/powerdns.php';require __DIR__.'/../app/lib/dns/technitium.php';require __DIR__.'/../app/lib/AutomaticDnsTarget.php';require __DIR__.'/../app/lib/RecordGuard.php';
 function isNullOrEmpty($v){return $v===null||$v==='';}
 function getDnsType($value){return 'A';}

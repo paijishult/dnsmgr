@@ -24,8 +24,11 @@
 
 ## 本次更新
 
-> **1066 · 日志隐私、部署状态与任务可靠性复核修复**
-> 修复 IIS 密码日志泄露、SSH 失败误报、旧版字段缓存、手动编辑后的任务定位、证书 DNS 清理重试和 PowerDNS TXT 预览兼容；新增真实 Windows 命令回归。详见 [本轮修复与复核记录](docs/changes-2026-10-20-recheck.md)。
+> **2026-10-29 · 上游同步与部署修复**
+> 加入 ALIAS 解析支持、SamWaf 部署及 EasyPanel 面板证书部署；修复 Kangle 部分失败误报成功、Cookie 日志泄露、Cloudflare 批量 TXT 目标串用和特殊记录 ID 复制失败。详见[检查与同步记录](docs/changes-2026-10-29.md)。
+
+> **1067 · 解析一致性、可靠通知与运行中心**
+> 修复 PowerDNS 连续写入、Route53 Alias 保护和任务定位、证书部署排队与部分成功重试；新增运行中心、漂移检测、凭据健康检查、多目标 TLS 验收和 API HMAC v2。详见 [本轮修改、升级与验证说明](docs/changes-2026-10-25.md)。
 >
 > **升级前必读：** SSH / 飞牛部署需补填可信主机指纹；QQ 通知改用后台生成的一次性绑定码；PowerDNS / Technitium 旧自动任务需重新选择解析记录。详见 [本次修改与审查文档](docs/changes-2026-10-20.md)。
 
@@ -39,19 +42,22 @@
 | **批量任务** | 将已确认的 DNS 计划加入后台，逐项进度与结果、失败续跑、取消、历史快照；复用原生计划任务 |
 | **多用户与授权** | 管理员、普通用户、按域名授权，以及域名快捷登录对接 |
 | **SSL 证书** | ACME 与云平台证书账户、DNS 验证、CNAME 代理、自动续签、手动导入、证书和私钥下载 |
-| **证书部署** | 面板、WAF/CDN、云平台、Kubernetes、SSH、FTP、S3 与本机部署，共 51 个模块 |
+| **证书部署** | 面板、WAF/CDN、云平台、Kubernetes、SSH、FTP、S3 与本机部署，共 52 个模块 |
 | **线上 TLS 验收** | 可选核对线上证书、主机名、可信证书链与 SHA-256 指纹；部署完成后验收失败只重试验收 |
 | **容灾与定时** | Ping/TCP/HTTP(S) 检测、暂停/恢复/切换记录、连续检测阈值、单次/每日/每周/每月定时切换 |
+| **健康检查策略** | 可配置 TLS 校验、HTTP 状态码与响应断言，最多 5 个健康端点及通过数量阈值 |
+| **运行中心** | 统一任务状态与控制、跨任务写入冲突提示、部署与验收矩阵、DNS 漂移差异、凭据到期与轮换提醒 |
 | **Cloudflare 增强** | SaaS 自定义主机名、验证信息、回退源、Tunnel、公共主机名、CIDR 和主机名路由 |
 | **Cloudflare 优选 IP** | 获取优选 IP、任务管理、定时更新解析与结果通知 |
-| **开放 API** | 多密钥、Scope、域名范围、IP/CIDR 白名单、过期时间、原子限流、独立私钥下载权限、内置接口文档 |
-| **审计与通知** | 后台/API 操作审计、拒绝记录、脱敏参数、筛选与 CSV 导出；邮件及多种即时通知渠道 |
+| **开放 API** | HMAC-SHA256 v2、防重放、受支持写接口的幂等键；多密钥、Scope、域名/IP 范围、过期与限流、内置文档 |
+| **审计与通知** | 后台/API 操作审计、拒绝记录、脱敏参数、筛选与 CSV 导出；逐渠道持久化通知、退避重试与失败重发 |
 | **界面与交付** | Modern 默认界面、19 款皮肤、手机适配、`⌘K` / `Ctrl+K` 快速搜索、双架构 Docker 镜像与发布前检查 |
 
 ### 这次增强的使用入口
 
 - **解析页面 → 变更与快照**：先预览差异，再立即执行或加入后台任务；变更前自动保留恢复点。
 - **侧栏底部 → 批量任务**：查看逐项进度、错误与快照，请求取消或续跑尚未完成的项目。
+- **管理员侧栏 → 运行中心**：查看任务、写入冲突、证书部署矩阵及通知；按需开启 DNS 漂移检测和凭据检查。
 - **SSL 证书 → 部署任务**：按需开启线上 TLS 验收，明确区分“已部署”和“验收通过”。
 - **API 接口 → API 密钥 / 接口文档**：创建最小权限密钥，直接查看参数、返回示例和 curl 示例。
 - **审计日志**：按来源、用户、密钥、IP、结果与时间检索，导出经过防公式注入处理的 CSV。
@@ -89,11 +95,11 @@
 Let's Encrypt、ZeroSSL、Google SSL、LiteSSL、腾讯云免费 SSL、阿里云免费 SSL、UCloud 免费 SSL、自定义 ACME；同时支持手动导入已有证书。
 
 <details>
-<summary><strong>展开：全部 51 个证书部署模块</strong></summary>
+<summary><strong>展开：全部 52 个证书部署模块</strong></summary>
 
 | 类别 | 模块 |
 | --- | --- |
-| 面板与服务 | 宝塔、宝塔 Win 极速版、Kangle 用户/Kangle 管理员、雷池 WAF、堡塔云 WAF、Cdnfly、LeCDN、GoEdge、南墙 WAF、1Panel、MW 面板、AcePanel、耗子面板、小皮面板、AMH、CloudPanel、DirectAdmin、群晖、Lucky、妙妙屋X、飞牛 OS、Nginx Proxy Manager、Proxmox VE、Kubernetes |
+| 面板与服务 | 宝塔、宝塔 Win 极速版、Kangle 用户/Kangle 管理员、雷池 WAF、SamWaf、堡塔云 WAF、Cdnfly、LeCDN、GoEdge、南墙 WAF、1Panel、MW 面板、AcePanel、耗子面板、小皮面板、AMH、CloudPanel、DirectAdmin、群晖、Lucky、妙妙屋X、飞牛 OS、Nginx Proxy Manager、Proxmox VE、Kubernetes |
 | 云平台与 CDN | 阿里云、腾讯云、华为云、UCloud、七牛云、多吉云、AxisNow、又拍云、百度云、金山云、火山引擎、西部数码、网宿科技、白山云、天翼云、括彩云、全栈云、雨云、uniCloud、AWS、Gcore、Cachefly |
 | 服务器与存储 | SSH 服务器、FTP 服务器、S3 存储、复制到本机 |
 
@@ -215,15 +221,18 @@ location / {
 
 ## 开放 API
 
-新密钥使用原生 POST 签名协议：
+新接入推荐 HMAC-SHA256 v2，签名同时绑定身份、方法、完整请求 URI、原始请求体、时间戳、Nonce 和可选幂等键：
 
 ```text
 POST /api/<接口路径>
-keyid + timestamp + sign
-sign = md5(keyid + timestamp + secret)
+X-Dnsmgr-Version: 2
+X-Dnsmgr-Keyid: <KeyID>
+X-Dnsmgr-Timestamp: <Unix 秒>
+X-Dnsmgr-Nonce: <每次请求重新生成>
+X-Dnsmgr-Signature: <HMAC-SHA256 十六进制>
 ```
 
-原有的用户 API（`uid + timestamp + sign`）继续兼容。后台内置接口文档提供各接口的参数、返回示例和 curl 用法。
+原有 MD5 表单签名及用户 API 继续兼容。完整规范、幂等接口范围和 Python 示例见 [API v2 文档](docs/api-v2.md)，后台「接口文档」也提供 v2 示例。
 
 - Scope 覆盖域名、解析、证书、部署、容灾、定时、优选 IP、Cloudflare、日志与系统统计。
 - 每个密钥可设置域名范围、IP/CIDR 白名单、调用频率及过期时间；Secret 仅创建或重置时展示。

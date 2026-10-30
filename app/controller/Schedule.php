@@ -64,6 +64,17 @@ class Schedule extends BaseController
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
+        $ids = $action === 'operation' ? (array)input('post.ids', []) : [input('post.id/d', 0)];
+        if ($action === 'add') return $this->mutateTask();
+        try {
+            return \app\service\TaskLockService::mutateMany('schedule', $ids, fn() => $this->mutateTask());
+        } catch (\Throwable $e) { return json(['code'=>-1, 'msg'=>$e->getMessage()]); }
+    }
+
+    private function mutateTask()
+    {
+        if (!checkPermission(2)) return $this->alert('error', '无权限');
+        $action = input('param.action');
         if ($this->request->isApi && in_array($action, ['add', 'edit', 'setactive', 'del', 'operation'])) {
             api_write_log('定时切换:' . $action, 'ID:' . (input('post.id') ?: implode(',', (array)input('post.ids', []))) . ' ' . input('post.rr', ''));
         }

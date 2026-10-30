@@ -9,7 +9,13 @@ namespace app\lib {
         public function __construct(private $dns, $domain, $connection = null) { if (!$connection instanceof \TaskFakeConnection) throw new \RuntimeException('Automatic writes must use their dedicated database connection'); }
         public function __call($method, $arguments) { return $this->dns->$method(...$arguments); }
     }
-    class DeployHelper { public static function getModel(...$args) { return $GLOBALS['fake_deploy']; } }
+    class DeployHelper {
+        public static function getModel(...$args) { return $GLOBALS['fake_deploy']; }
+        public static function getModel2($type, $config) {
+            if ($type !== 'fake' || !is_array($config)) throw new \RuntimeException('Deployment client requires the captured account configuration');
+            return $GLOBALS['fake_deploy'];
+        }
+    }
     class CertHelper {
         public static $cert_config = ['fake'=>['cname'=>false]];
         public static function getModel2(...$args) { return $GLOBALS['fake_cert']; }

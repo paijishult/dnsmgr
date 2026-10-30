@@ -84,6 +84,17 @@ class Dmonitor extends BaseController
     {
         if (!checkPermission(2)) return $this->alert('error', '无权限');
         $action = input('param.action');
+        $ids = $action === 'operation' ? (array)input('post.ids', []) : [input('post.id/d', 0)];
+        if ($action === 'add') return $this->mutateTask();
+        try {
+            return \app\service\TaskLockService::mutateMany('monitor', $ids, fn() => $this->mutateTask());
+        } catch (\Throwable $e) { return json(['code'=>-1, 'msg'=>$e->getMessage()]); }
+    }
+
+    private function mutateTask()
+    {
+        if (!checkPermission(2)) return $this->alert('error', '无权限');
+        $action = input('param.action');
         if ($this->request->isApi && in_array($action, ['add', 'edit', 'setactive', 'del', 'operation'])) {
             api_write_log('容灾策略:' . $action, 'ID:' . (input('post.id') ?: implode(',', (array)input('post.ids', []))) . ' ' . input('post.rr', ''));
         }
@@ -105,10 +116,12 @@ class Dmonitor extends BaseController
                 'cdn' => input('post.cdn') == 'true' || input('post.cdn') == '1' ? 1 : 0,
                 'remark' => input('post.remark', null, 'trim'),
                 'recordinfo' => input('post.recordinfo', null, 'trim'),
+                'health_options' => input('post.health_options', '{}'),
                 'addtime' => time(),
                 'active' => 1
             ];
 
+            try { $task['health_options'] = json_encode(\app\service\HealthPolicy::normalize($task['health_options']), JSON_THROW_ON_ERROR); } catch (\Throwable $e) { return json(['code'=>-1, 'msg'=>$e->getMessage()]); }
             if (empty($task['did']) || empty($task['rr']) || isNullOrEmpty($task['recordid']) || empty($task['main_value']) || empty($task['frequency'])) {
                 return json(['code' => -1, 'msg' => '必填项不能为空']);
             }
@@ -144,8 +157,10 @@ class Dmonitor extends BaseController
                 'cdn' => input('post.cdn') == 'true' || input('post.cdn') == '1' ? 1 : 0,
                 'remark' => input('post.remark', null, 'trim'),
                 'recordinfo' => input('post.recordinfo', null, 'trim'),
+                'health_options' => input('post.health_options', '{}'),
             ];
 
+            try { $task['health_options'] = json_encode(\app\service\HealthPolicy::normalize($task['health_options']), JSON_THROW_ON_ERROR); } catch (\Throwable $e) { return json(['code'=>-1, 'msg'=>$e->getMessage()]); }
             if (empty($task['did']) || empty($task['rr']) || isNullOrEmpty($task['recordid']) || empty($task['main_value']) || empty($task['frequency'])) {
                 return json(['code' => -1, 'msg' => '必填项不能为空']);
             }

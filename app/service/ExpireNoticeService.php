@@ -97,9 +97,8 @@ class ExpireNoticeService
         if (!empty($noticeList)) {
             foreach ($noticeList as $day => $list) {
                 $ids = array_column($list, 'id');
-                Db::name('domain')->whereIn('id', $ids)->update(['noticetime' => date('Y-m-d H:i:s')]);
                 MsgNotice::expire_notice_send($day, $list);
-                echo '域名到期提醒: ' . $day . '天内到期的' . count($ids) . '个域名已发送' . PHP_EOL;
+                echo '域名到期提醒: ' . $day . '天内到期的' . count($ids) . '个域名已加入通知队列' . PHP_EOL;
             }
         }
     }

@@ -5,7 +5,7 @@ namespace app\lib\dns;
 use app\lib\DnsInterface;
 use Exception;
 
-class powerdns implements DnsInterface
+class powerdns implements DnsInterface, \app\lib\AtomicDns
 {
     private $url;
     private $apikey;
@@ -15,6 +15,8 @@ class powerdns implements DnsInterface
     private $domainid;
     private $proxy;
     private array $rrsets = [];
+    private ?array $batchChanges = null;
+    private array $batchOriginal = [];
 
     function __construct($config)
     {
@@ -59,7 +61,8 @@ class powerdns implements DnsInterface
     //获取解析记录列表
     public function getDomainRecords($PageNumber = 1, $PageSize = 20, $KeyWord = null, $SubDomain = null, $Value = null, $Type = null, $Line = null, $Status = null)
     {
-        $data = $this->send_reuqest('GET', '/servers/' . $this->server_id . '/zones/' . $this->domainid);
+        $data = $this->batchChanges !== null ? ['rrsets'=>$this->rrsets] : $this->send_reuqest('GET', '/servers/' . $this->server_id . '/zones/' . $this->domainid);
+        if ($data !== false && (!is_array($data) || !isset($data['rrsets']) || !is_array($data['rrsets']))) { $this->setError('PowerDNS记录列表响应无效');return false; }
         if ($data) {
             $list = [];
             $rrset_id = 0;
@@ -139,7 +142,7 @@ class powerdns implements DnsInterface
     public function addDomainRecord($Name, $Type, $Value, $Line = 'default', $TTL = 600, $MX = 1, $Weight = null, $Remark = null)
     {
         if ($Type == 'TXT' && substr($Value, 0, 1) != '"') $Value = '"' . $Value . '"';
-        if (($Type == 'CNAME' || $Type == 'MX') && substr($Value, -1) != '.') $Value .= '.';
+        if (in_array($Type, ['CNAME', 'MX', 'ALIAS'], true) && substr($Value, -1) != '.') $Value .= '.';
         if ($Type == 'MX') $Value = intval($MX) . ' ' . $Value;
         $records = [];
         $rrsets = $this->rrsets;
@@ -163,64 +166,37 @@ class powerdns implements DnsInterface
         return $this->rrset_replace($Name, $Type, $TTL, $records, $Remark);
     }
 
-    //修改解析记录
+    // Build both sides of a move before submitting one zone PATCH.
     public function updateDomainRecord($RecordId, $Name, $Type, $Value, $Line = 'default', $TTL = 600, $MX = 1, $Weight = null, $Remark = null)
     {
-        if ($Type == 'TXT' && substr($Value, 0, 1) != '"') $Value = '"' . $Value . '"';
-        if (($Type == 'CNAME' || $Type == 'MX') && substr($Value, -1) != '.') $Value .= '.';
-        if ($Type == 'MX') $Value = intval($MX) . ' ' . $Value;
-        $rrsets = $this->rrsets;
-        $add = false;
-        $res = false;
-        if ($rrsets) {
-            [$rrset_id, $record_id] = explode('_', $RecordId);
-            $exist = false;
-            foreach ($rrsets as &$rrset) {
-                if ($rrset['id'] == $rrset_id) {
-                    $records = $rrset['records'];
-                    $records_filter = array_filter($records, function ($record) use ($Value, $record_id) {
-                        return $record['content'] == $Value && $record['id'] != $record_id;
-                    });
-                    if (!empty($records_filter)) {
-                        $this->setError('已存在相同记录');
-                        return false;
-                    }
-                    foreach ($records as $i => &$record) {
-                        if ($record['id'] == $record_id) {
-                            $exist = true;
-                            if ($rrset['host'] == $Name && $rrset['type'] == $Type) {
-                                $record['content'] = $Value;
-                            } else {
-                                unset($records[$i]);
-                                $add = true;
-                            }
-                            break;
-                        }
-                    }
-                    if (!$exist) break;
-                    $records = array_values($records);
-                    if (!empty($records)) {
-                        $res = $this->rrset_replace($rrset['host'], $rrset['type'], $TTL, $records, $Remark);
-                    } else {
-                        $res = $this->rrset_delete($rrset['host'], $rrset['type']);
-                    }
-                    $rrset['records'] = $records;
-                    break;
+        if ($Type === 'TXT' && !str_starts_with($Value, '"')) $Value = '"' . $Value . '"';
+        if (in_array($Type, ['CNAME', 'MX', 'ALIAS'], true) && !str_ends_with($Value, '.')) $Value .= '.';
+        if ($Type === 'MX') $Value = intval($MX) . ' ' . $Value;
+        foreach ($this->rrsets as $source) {
+            foreach ($source['records'] as $index => $record) {
+                if ($source['id'] . '_' . $record['id'] !== (string)$RecordId) continue;
+                $same = $source['host'] === $Name && $source['type'] === $Type;
+                $target = $same ? $source : ['host'=>$Name, 'type'=>$Type, 'records'=>[], 'comments'=>[]];
+                if (!$same) foreach ($this->rrsets as $candidate) {
+                    if ($candidate['host'] === $Name && $candidate['type'] === $Type) $target = $candidate;
                 }
+                foreach ($target['records'] as $i => $other) {
+                    if ((!$same || $i !== $index) && $other['content'] === $Value) { $this->setError('已存在相同记录'); return false; }
+                }
+                $record['content'] = $Value;
+                if ($same) $target['records'][$index] = $record;
+                else $target['records'][] = $record;
+                $changes = [];
+                if (!$same) {
+                    unset($source['records'][$index]);
+                    $changes[] = $this->replacement($source['host'], $source['type'], $source['ttl'], array_values($source['records']));
+                }
+                $changes[] = $this->replacement($Name, $Type, $TTL, $target['records'], $Remark);
+                return $this->patchRrsets($changes);
             }
-            if (!$exist) {
-                $this->setError('记录不存在，请刷新页面重试');
-                return false;
-            }
-            $this->rrsets = $rrsets;
-            if ($res && $add) {
-                $res = $this->addDomainRecord($Name, $Type, $Value, $Line, $TTL, $MX, $Weight, $Remark);
-            }
-            return $res;
-        } else {
-            $records[] = ['content' => $Value, 'disabled' => false];
-            return $this->addDomainRecord($Name, $Type, $Value, $Line, $TTL, $MX, $Weight, $Remark);
         }
+        $this->setError('记录不存在，请刷新页面重试');
+        return false;
     }
 
     //修改解析记录备注
@@ -265,7 +241,6 @@ class powerdns implements DnsInterface
             $this->setError('记录不存在，请刷新页面重试');
             return false;
         }
-        $this->rrsets = $rrsets;
         return $res;
     }
 
@@ -300,7 +275,6 @@ class powerdns implements DnsInterface
             $this->setError('记录不存在，请刷新页面重试');
             return false;
         }
-        $this->rrsets = $rrsets;
         return $res;
     }
 
@@ -345,43 +319,64 @@ class powerdns implements DnsInterface
         return false;
     }
 
+    private function replacement($host, $type, $ttl, $records, $remark = null): array
+    {
+        $name = $host === '@' ? $this->domainid : $host . '.' . $this->domainid;
+        if (!$records) return ['name'=>$name, 'type'=>$type, 'changetype'=>'DELETE'];
+        $comments = [];
+        foreach ($this->rrsets as $set) if ($set['host'] === $host && $set['type'] === $type) $comments = $set['comments'] ?? [];
+        if ($remark !== null) $comments = $remark === '' ? [] : [['account'=>'', 'content'=>$remark]];
+        return ['name'=>$name, 'type'=>$type, 'ttl'=>(int)$ttl, 'changetype'=>'REPLACE',
+            'records'=>array_map(static fn($r)=>array_intersect_key($r, array_flip(['content','disabled','set-ptr'])), array_values($records)), 'comments'=>$comments];
+    }
+
+    private function patchRrsets(array $changes)
+    {
+        $ok = $this->batchChanges !== null || $this->send_reuqest('PATCH', '/servers/' . $this->server_id . '/zones/' . $this->domainid, ['rrsets'=>$changes]);
+        if ($ok === false) return false;
+        foreach ($changes as $set) {
+            if ($this->batchChanges !== null) $this->batchChanges[$set['name'].'|'.$set['type']]=$set;
+            $this->rrsets = array_values(array_filter($this->rrsets, fn($r)=>$r['name'] !== $set['name'] || $r['type'] !== $set['type']));
+            if ($set['changetype'] === 'DELETE') continue;
+            $set['host'] = $set['name'] === $this->domainid ? '@' : substr($set['name'], 0, -strlen('.' . $this->domainid));
+            $set['id'] = substr(hash('sha256', $set['name'] . '|' . $set['type']), 0, 20);
+            foreach ($set['records'] as &$record) $record['id'] = substr(hash('sha256', $record['content']), 0, 20);
+            unset($record);
+            $this->rrsets[] = $set;
+        }
+        return true;
+    }
+
+    public function beginAtomicBatch(): void
+    {
+        if ($this->batchChanges !== null) throw new \RuntimeException('批量事务已经开始');
+        $this->batchOriginal=$this->rrsets; $this->batchChanges=[];
+    }
+
+    public function commitAtomicBatch(): bool
+    {
+        if ($this->batchChanges === null) throw new \RuntimeException('批量事务尚未开始');
+        $changes=array_values($this->batchChanges);
+        $ok=!$changes || $this->send_reuqest('PATCH','/servers/'.$this->server_id.'/zones/'.$this->domainid,['rrsets'=>$changes]) !== false;
+        if (!$ok) $this->rrsets=$this->batchOriginal;
+        $this->batchChanges=null;$this->batchOriginal=[];
+        return $ok;
+    }
+
+    public function cancelAtomicBatch(): void
+    {
+        if ($this->batchChanges !== null) $this->rrsets=$this->batchOriginal;
+        $this->batchChanges=null;$this->batchOriginal=[];
+    }
+
     private function rrset_replace($host, $type, $ttl, $records, $remark = null)
     {
-        $name = $host == '@' ? $this->domainid : $host . '.' . $this->domainid;
-        $rrset = [
-            'name' => $name,
-            'type' => $type,
-            'ttl' => intval($ttl),
-            'changetype' => 'REPLACE',
-            'records' => array_map(static fn($record) => array_intersect_key($record, array_flip(['content', 'disabled', 'set-ptr'])), $records),
-            'comments' => [],
-        ];
-        if (!empty($remark)) {
-            $rrset['comments'] = [
-                ['account' => '', 'content' => $remark]
-            ];
-        }
-        $param = [
-            'rrsets' => [
-                $rrset
-            ],
-        ];
-        return $this->send_reuqest('PATCH', '/servers/' . $this->server_id . '/zones/' . $this->domainid, $param);
+        return $this->patchRrsets([$this->replacement($host, $type, $ttl, $records, $remark)]);
     }
 
     private function rrset_delete($host, $type)
     {
-        $name = $host == '@' ? $this->domainid : $host . '.' . $this->domainid;
-        $param = [
-            'rrsets' => [
-                [
-                    'name' => $name,
-                    'type' => $type,
-                    'changetype' => 'DELETE',
-                ]
-            ],
-        ];
-        return $this->send_reuqest('PATCH', '/servers/' . $this->server_id . '/zones/' . $this->domainid, $param);
+        return $this->patchRrsets([$this->replacement($host, $type, 0, [])]);
     }
 
     private function send_reuqest($method, $path, $params = null)
@@ -398,7 +393,12 @@ class powerdns implements DnsInterface
             $headers['Content-Type'] = 'application/json';
         }
         try {
-            $response = http_request($url, $body, null, null, $headers, $this->proxy, $method);
+            $send = function () use ($url,$body,$headers,$method) {
+                $response = http_request($url, $body, null, null, $headers, $this->proxy, $method);
+                if ($method === 'GET' && in_array((int)$response['code'],[408,429,500,502,503,504],true)) throw new Exception('PowerDNS读取暂时失败', (int)$response['code']);
+                return $response;
+            };
+            $response = $method === 'GET' ? \app\lib\ProviderReadRetry::run($send) : $send();
         } catch (Exception $e) {
             $this->setError($e->getMessage());
             return false;

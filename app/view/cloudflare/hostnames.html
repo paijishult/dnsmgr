@@ -1116,6 +1116,7 @@ function confirmBatchHostnameTxt(){
         var hostname = item.row.hostname;
         var txtName = item.txtName;
         var txtValue = item.txtValue;
+        var selectedDomainIdForHostname = selectedDomainId;
         
         if(!selectedTarget){
           batchResults.failed++;
@@ -1137,7 +1138,7 @@ function confirmBatchHostnameTxt(){
           
           var targetForThisHostname = null;
           for(var j = 0; j < targetsForHostname.length; j++){
-            if(String(targetsForHostname[j].domain_id) === String(selectedDomainId)){
+            if(String(targetsForHostname[j].domain_id) === String(selectedDomainIdForHostname)){
               targetForThisHostname = targetsForHostname[j];
               break;
             }
@@ -1374,6 +1375,7 @@ function confirmBatchCertTxt(){
         var hostname = item.row.hostname;
         var txtName = item.txtName;
         var txtValue = item.txtValue;
+        var selectedDomainIdForHostname = selectedDomainId;
         
         if(!selectedTarget){
           batchResults.failed++;
@@ -1395,7 +1397,7 @@ function confirmBatchCertTxt(){
           
           var targetForThisHostname = null;
           for(var j = 0; j < targetsForHostname.length; j++){
-            if(String(targetsForHostname[j].domain_id) === String(selectedDomainId)){
+            if(String(targetsForHostname[j].domain_id) === String(selectedDomainIdForHostname)){
               targetForThisHostname = targetsForHostname[j];
               break;
             }

@@ -35,28 +35,21 @@ class kangle implements DeployInterface
     public function deploy($fullchain, $privatekey, $config, &$info)
     {
         $this->login();
-        $this->log('登录成功 cookie:' . $this->cookie);
+        $this->log('登录成功');
         $this->getMain();
 
-        if ($config['type'] == '1' && !empty($config['domains'])) {
-            $domains = explode("\n", $config['domains']);
-            $success = 0;
-            $errmsg = null;
-            foreach ($domains as $domain) {
+        if (($config['type'] ?? '0') == '1') {
+            $targets = [];
+            foreach (explode("\n", (string)($config['domains'] ?? '')) as $domain) {
                 $domain = trim($domain);
-                if (empty($domain)) continue;
-                try {
-                    $this->deployDomain($domain, $fullchain, $privatekey);
-                    $this->log("域名 {$domain} 证书部署成功");
-                    $success++;
-                } catch (Exception $e) {
-                    $errmsg = $e->getMessage();
-                    $this->log("域名 {$domain} 证书部署失败：" . $errmsg);
-                }
+                if ($domain !== '') $targets[$domain] = $domain;
             }
-            if ($success == 0) {
-                throw new Exception($errmsg ? $errmsg : '要部署的域名不存在');
-            }
+            \app\lib\DeploymentTargets::run($fullchain, $targets, $info, function ($domain) use ($fullchain, $privatekey) {
+                $this->deployDomain($domain, $fullchain, $privatekey);
+                $this->log("域名 {$domain} 证书部署成功");
+            }, $config['_checkpoint'] ?? null, $config['_redact_error'] ?? function ($text) use ($privatekey) {
+                return \app\lib\SensitiveLog::filter($text, [$this->cookie, $this->skey, $privatekey]);
+            });
         } else {
             $this->deployAccount($fullchain, $privatekey);
             $this->log("账号级SSL证书部署成功");
@@ -72,7 +65,7 @@ class kangle implements DeployInterface
             'certificate_key' => $privatekey,
         ];
         $response = http_request($this->url . $path, http_build_query($post), null, $this->cookie, null, $this->proxy);
-        if (strpos($response['body'], '成功')) {
+        if ($response['code'] >= 200 && $response['code'] < 300 && strpos($response['body'], '成功') !== false) {
             return true;
         } elseif (preg_match('/alert\(\'(.*?)\'\)/i', $response['body'], $match)) {
             throw new Exception(htmlspecialchars($match[1]));
@@ -91,7 +84,7 @@ class kangle implements DeployInterface
             'certificate_key' => $privatekey,
         ];
         $response = http_request($this->url . $path, http_build_query($post), null, $this->cookie, null, $this->proxy);
-        if (strpos($response['body'], '成功')) {
+        if ($response['code'] >= 200 && $response['code'] < 300 && strpos($response['body'], '成功') !== false) {
             return true;
         } elseif (preg_match('/alert\(\'(.*?)\'\)/i', $response['body'], $match)) {
             throw new Exception(htmlspecialchars($match[1]));

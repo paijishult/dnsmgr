@@ -91,7 +91,7 @@ class ScheduleService
 
     public static function validate(array $row): void
     {
-        foreach (['switchtime'=>32,'switchdate'=>32,'rr'=>253,'recordid'=>2048,'value'=>131072,'line'=>2048,'remark'=>2000,'recordinfo'=>65536] as $field => $maximum) {
+        foreach (['switchtime'=>32,'switchdate'=>32,'rr'=>253,'recordid'=>2048,'value'=>2048,'line'=>255,'remark'=>2000,'recordinfo'=>65536] as $field => $maximum) {
             if (isset($row[$field]) && ((!is_string($row[$field]) && !is_int($row[$field])) || strlen((string)$row[$field]) > $maximum)) throw new \InvalidArgumentException('定时策略参数格式不正确或过长');
         }
         foreach (['type'=>[0, 1], 'cycle'=>[0, 1, 2], 'switchtype'=>[0, 1, 2, 3]] as $field => $allowed) {

@@ -204,7 +204,7 @@
           </li>
           {if request()->user['level'] eq 2}<li class="{if request()->controller() == 'Audit'}active{/if}">
             <a href="/audit"><i class="fa fa-shield fa-fw"></i> <span>审计日志</span></a>
-          </li>{/if}
+          </li><li class="{if request()->controller() == 'Operations'}active{/if}"><a href="/operations"><i class="fa fa-heartbeat fa-fw"></i> <span>运行中心</span></a></li>{/if}
           {if request()->user['type'] == 'user' && checkPermission(1)}<li class="{if request()->controller() == 'Batch'}active{/if}">
             <a href="/batch"><i class="fa fa-tasks fa-fw"></i> <span>批量任务</span></a>
           </li>{/if}

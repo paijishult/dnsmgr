@@ -175,7 +175,6 @@ class CertOrderService
         $this->delDns();
         $this->resetRetry2();
         $this->saveLog('[Success] 证书签发成功');
-        $this->db->name('cert_deploy')->where('oid', $this->order['id'])->data(['status' => 0, 'retry' => 0, 'retrytime' => null, 'issend' => 0])->update();
         return 3;
     }
 
@@ -399,10 +398,15 @@ class CertOrderService
             $this->saveResult(-7, $e->getMessage());
             throw $e;
         }
+        $this->db->startTrans();
+        try {
+            $this->db->name('cert_order')->where('id', $this->order['id'])->update(['fullchain'=>$result['fullchain'], 'privatekey'=>$result['private_key'], 'issuer'=>$result['issuer'], 'issuetime'=>date('Y-m-d H:i:s', $result['validFrom']), 'expiretime'=>date('Y-m-d H:i:s', $result['validTo']), 'status'=>3, 'retry'=>0, 'retrytime'=>null, 'error'=>null, 'issend'=>0]);
+            $this->db->name('cert_deploy')->where('oid', $this->order['id'])->update(['status'=>0, 'retry'=>0, 'retrytime'=>null, 'issend'=>0]);
+            $this->db->commit();
+        } catch (\Throwable $e) { $this->db->rollback(); throw $e; }
+        $this->order['status'] = 3;
+        $this->order['retry'] = 0;
         $this->order['issuer'] = $result['issuer'];
-        $this->db->name('cert_order')->where('id', $this->order['id'])->update(['fullchain' => $result['fullchain'], 'privatekey' => $result['private_key'], 'issuer' => $result['issuer'], 'issuetime' => date('Y-m-d H:i:s', $result['validFrom']), 'expiretime' => date('Y-m-d H:i:s', $result['validTo'])]);
-        $this->saveResult(3);
-        $this->resetRetry();
     }
 
     //吊销证书

@@ -8,6 +8,7 @@
 		<nav class="doc-toc">
 			<a href="#start">开始使用</a>
 			<a href="#auth">签名与示例代码</a>
+			<a href="#auth-v2">HMAC v2 与幂等请求</a>
 			<a href="#scopes">权限范围</a>
 			<a href="#dns-changes">变更预览与后台任务</a>
 			{foreach $groups as $g}<a href="#g-{$g.key}">{$g.name}<span>{:count($g['items'])}</span></a>{/foreach}
@@ -23,7 +24,7 @@
 		<div class="box-body doc-prose">
 			<p>以下基础接口与扩展接口全部使用 <code>POST</code> 请求，参数以表单格式（<code>application/x-www-form-urlencoded</code>）提交，返回 JSON。接口地址前缀：</p>
 			<div class="copy-line"><code id="baseUrl">{$siteurl}/api</code><button class="btn btn-default btn-xs" data-copy="#baseUrl"><i class="fa fa-copy"></i> 复制</button></div>
-			<p>每个请求都需要携带以下三个认证参数，两种身份任选其一：</p>
+			<p>新接入推荐使用 <a href="#auth-v2">HMAC v2 请求头签名</a>，支持请求内容校验、防重放与幂等。以下为继续兼容的旧版表单认证，两种身份任选其一：</p>
 			<table class="table table-bordered doc-table">
 				<thead><tr><th style="width:150px">方式</th><th>认证参数</th><th>签名算法</th><th>权限</th></tr></thead>
 				<tbody>
@@ -40,6 +41,7 @@
 					<tr><td>400</td><td>缺少必填参数或参数格式不正确</td></tr>
 					<tr><td>403</td><td>认证失败：参数缺失、时间戳不合法、签名错误、密钥已禁用/过期、IP不在白名单、缺少该接口所需权限</td></tr>
 					<tr><td>404</td><td>接口不存在（注意所有接口都是 POST）</td></tr>
+					<tr><td>409</td><td>v2 Nonce 重复、幂等键冲突、请求仍在执行，或上次结果不确定；请核对响应说明</td></tr>
 					<tr><td>429</td><td>超过密钥的频率限制，或同一IP认证失败次数过多（20次）被临时封禁15分钟</td></tr>
 					<tr><td>500</td><td>服务器内部错误（不会返回调用栈等内部信息）</td></tr>
 				</tbody>
@@ -48,8 +50,48 @@
 		</div>
 	</div>
 
+    <div class="box" id="auth-v2">
+        <div class="box-header with-border"><i class="fa fa-lock fa-fw"></i><h3 class="box-title">HMAC v2 与幂等请求（推荐）</h3></div>
+        <div class="box-body doc-prose">
+            <p>业务参数仍使用 POST 表单；认证放在请求头：<code>X-Dnsmgr-Version: 2</code>、<code>X-Dnsmgr-Keyid</code>（或 <code>X-Dnsmgr-Uid</code>，二选一）、<code>X-Dnsmgr-Timestamp</code>、<code>X-Dnsmgr-Nonce</code> 和 <code>X-Dnsmgr-Signature</code>。时间误差不超过300秒，Nonce每次重新生成，原始请求体不超过2MB。</p>
+            <p>以下8项使用单个LF换行连接，计算 HMAC-SHA256 后取64位小写十六进制；使用对应身份的 Secret。URI包含原样查询串，不包含协议和主机名。未使用幂等键时最后一项为空，因此签名串以换行结尾。</p>
+            <pre class="code">DNSMGR-HMAC-SHA256
+keyid:你的KeyID（用户API使用uid:用户ID）
+POST
+/api/domain/data
+SHA256(原始请求体)的十六进制
+时间戳
+Nonce
+Idempotency-Key或空字符串</pre>
+            <p>Nonce及幂等键允许16–128个字母、数字、下划线或短横线。签名后必须原样发送请求体，不能重新编码。</p>
+            <div class="code-wrap"><button class="btn-copy" data-copy="#c-v2"><i class="fa fa-copy"></i> 复制</button><pre class="code" id="c-v2">import hashlib, hmac, os, time, uuid
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+
+keyid, secret = os.environ["DNSMGR_KEYID"], os.environ["DNSMGR_SECRET"]
+uri = "/api/domain/data"
+body = urlencode(dict(offset=0, limit=20)).encode("ascii")
+ts, nonce = str(int(time.time())), uuid.uuid4().hex
+operation_id = ""  # 读接口留空；受支持的写操作重试需复用同一业务ID
+canonical = "\n".join(["DNSMGR-HMAC-SHA256", "keyid:" + keyid,
+    "POST", uri, hashlib.sha256(body).hexdigest(), ts, nonce, operation_id])
+headers = {"Content-Type": "application/x-www-form-urlencoded",
+    "X-Dnsmgr-Version": "2", "X-Dnsmgr-Keyid": keyid,
+    "X-Dnsmgr-Timestamp": ts, "X-Dnsmgr-Nonce": nonce,
+    "X-Dnsmgr-Signature": hmac.new(secret.encode(), canonical.encode(), hashlib.sha256).hexdigest()}
+if operation_id:
+    headers["Idempotency-Key"] = operation_id
+req = Request(os.environ["DNSMGR_URL"].rstrip("/") + uri,
+    data=body, headers=headers, method="POST")
+with urlopen(req, timeout=60) as response:
+    print(response.read().decode())</pre></div>
+            <p>可选 <code>Idempotency-Key</code> 支持：<code>/api/record/{add|update|delete|status|remark|batch|batchedit|batchadd|apply}/:id</code>、<code>/api/batch/enqueue</code>、<code>/api/batch/task/{cancel|retry}</code>、<code>/api/cert/deploy/process</code>。其他接口携带幂等键返回400。</p>
+            <p>同一写操作重试复用幂等键、URI及原始请求体，重新生成Nonce和签名。确认过的结果保存7天，重放附带 <code>Idempotency-Replayed: true</code>。相同键更换请求或权限发生变化返回409；上次执行结果不确定也返回409，须核对远端状态，不能换新键盲目重试。重复Nonce始终返回409。</p>
+        </div>
+    </div>
+
 	<div class="box" id="auth">
-		<div class="box-header with-border"><i class="fa fa-terminal fa-fw"></i><h3 class="box-title">签名与示例代码</h3></div>
+		<div class="box-header with-border"><i class="fa fa-terminal fa-fw"></i><h3 class="box-title">旧版签名与示例代码</h3></div>
 		<div class="box-body">
 			<ul class="nav nav-tabs doc-tabs" role="tablist">
 				<li class="active"><a href="#code-shell" data-toggle="tab">Shell</a></li>

@@ -7,10 +7,6 @@ use Exception;
 use think\facade\Db;
 use think\facade\View;
 use think\facade\Cache;
-use app\service\OptimizeService;
-use app\service\CertTaskService;
-use app\service\ExpireNoticeService;
-use app\service\ScheduleService;
 
 class System extends BaseController
 {
@@ -171,13 +167,7 @@ class System extends BaseController
         if (config_get('cron_type', '0') != '1' || empty($cron_key)) exit('未开启当前方式');
         if (!is_string($key) || !hash_equals((string)$cron_key, $key)) exit('访问密钥错误');
 
-        (new \app\service\BatchTaskService())->execute();
-        (new ScheduleService())->execute();
-        $res = (new OptimizeService())->execute();
-        if (!$res) {
-            (new CertTaskService())->execute();
-            (new ExpireNoticeService())->task();
-        }
+        \app\service\MaintenanceService::execute();
         echo 'success!';
     }
 }

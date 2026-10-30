@@ -80,7 +80,7 @@ class TaskRunner
             }
         } else {
             if ($row['checktype'] == 2) {
-                $result = CheckUtils::curl($row['checkurl'], $row['timeout'], $row['main_value'], $row['proxy'] == 1);
+                $result = HealthPolicy::check($row);
             } elseif ($row['checktype'] == 1) {
                 $result = CheckUtils::tcp($row['main_value'], $row['checkurl'], $row['tcpport'], $row['timeout']);
             } else {

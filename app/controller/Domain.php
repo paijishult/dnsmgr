@@ -531,6 +531,7 @@ class Domain extends BaseController
 
         $dnsconfig = DnsHelper::$dns_config[$dnstype];
         $dnsconfig['type'] = $dnstype;
+        $dnsconfig['alias'] = DnsHelper::supportsRecordType($dnstype, 'ALIAS');
 
         $drow['config'] = $dnsconfig;
         $drow['recordLine'] = $recordLineArr;
@@ -568,6 +569,7 @@ class Domain extends BaseController
 
         $dnsconfig = DnsHelper::$dns_config[$dnstype];
         $dnsconfig['type'] = $dnstype;
+        $dnsconfig['alias'] = DnsHelper::supportsRecordType($dnstype, 'ALIAS');
 
         View::assign('domainId', $id);
         View::assign('domainName', $drow['name']);
@@ -1068,6 +1070,7 @@ class Domain extends BaseController
 
         $dnsconfig = DnsHelper::$dns_config[$dnstype];
         $dnsconfig['type'] = $dnstype;
+        $dnsconfig['alias'] = DnsHelper::supportsRecordType($dnstype, 'ALIAS');
 
         View::assign('domainId', $id);
         View::assign('domainName', $drow['name']);
@@ -1079,6 +1082,7 @@ class Domain extends BaseController
 
     public function record_batch_add2()
     {
+        View::assign('aliasTypes', DnsHelper::getTypesSupporting('ALIAS'));
         return view('batchadd2');
     }
 
@@ -1103,6 +1107,7 @@ class Domain extends BaseController
 
         $dnsconfig = DnsHelper::$dns_config[$dnstype];
         $dnsconfig['type'] = $dnstype;
+        $dnsconfig['alias'] = DnsHelper::supportsRecordType($dnstype, 'ALIAS');
 
         View::assign('domainId', $id);
         View::assign('domainName', $drow['name']);
@@ -1170,6 +1175,7 @@ class Domain extends BaseController
             }
         }
 
+        View::assign('aliasTypes', DnsHelper::getTypesSupporting('ALIAS'));
         return view('batchedit');
     }
 
@@ -1247,7 +1253,8 @@ class Domain extends BaseController
             $domainList[] = [
                 'id' => $row['id'],
                 'name' => $row['name'],
-                'dnsType' => $dnsTypeName
+                'dnsType' => $dnsTypeName,
+                'supportsAlias' => DnsHelper::supportsRecordType($row['type'], 'ALIAS')
             ];
         }
 
@@ -1284,7 +1291,8 @@ class Domain extends BaseController
                     'recordLine' => $recordLineArr,
                     'minTTL' => $minTTL ? $minTTL : 1,
                     'weight' => $dnsconfig['weight'] ?? false,
-                    'remark' => $dnsconfig['remark'] ?? 0
+                    'remark' => $dnsconfig['remark'] ?? 0,
+                    'alias' => DnsHelper::supportsRecordType($dnstype, 'ALIAS')
                 ]
             ]);
         } catch (Exception $e) {
@@ -1412,6 +1420,7 @@ class Domain extends BaseController
 
         $dnsconfig = DnsHelper::$dns_config[$dnstype];
         $dnsconfig['type'] = $dnstype;
+        $dnsconfig['alias'] = DnsHelper::supportsRecordType($dnstype, 'ALIAS');
 
         View::assign('domainId', $id);
         View::assign('domainName', $drow['name']);

@@ -91,9 +91,10 @@
         <div class="col-sm-6">
             <label class="checkbox-inline"><input type="checkbox" v-model="verification.enabled"> 连接站点并核对实际生效的证书</label>
             <div v-show="verification.enabled" style="margin-top:12px">
+                <div class="form-group"><label>多目标验收（每行一个）</label><textarea class="form-control" rows="3" v-model="verificationTargets" placeholder="www.example.com:443&#10;www.example.com:443@1.2.3.4"></textarea><p class="help-block">填写后要求每个目标的全部A/AAAA地址通过。@后可指定公网源站IP；留空使用下方单站点验收。</p></div>
                 <div class="form-group"><label for="verify-host">站点域名</label><input id="verify-host" type="text" class="form-control" v-model="verification.host" placeholder="example.com"></div>
-                <div class="row"><div class="col-xs-6"><label for="verify-port">HTTPS端口</label><select id="verify-port" class="form-control" v-model.number="verification.port"><option :value="443">443</option><option :value="8443">8443</option></select></div><div class="col-xs-6"><label for="verify-timeout">超时（秒）</label><input id="verify-timeout" type="number" min="1" max="10" class="form-control" v-model.number="verification.timeout"></div></div>
-                <p class="help-block">填写证书覆盖的公网域名。验收通过后任务才显示已完成；未生效时可单独重试验收。</p>
+                <div class="row"><div class="col-xs-6"><label for="verify-port">HTTPS端口</label><select id="verify-port" class="form-control" v-model.number="verification.port"><option :value="443">443</option><option :value="8443">8443</option></select></div><div class="col-xs-6"><label for="verify-timeout">超时（秒）</label><input id="verify-timeout" type="number" min="1" max="60" class="form-control" v-model.number="verification.timeout"></div></div>
+                <p class="help-block">填写证书覆盖的公网域名。单站点超时1–10秒，多目标总超时1–60秒；验收未通过时可单独重试验收。</p>
             </div>
         </div>
     </div>
@@ -135,6 +136,7 @@ new Vue({
         },
         inputs: {},
         config: {},
+        verificationTargets: '',
         verification: {enabled: false, host: '', port: 443, timeout: 5},
         typeList: typeList,
         note: '',
@@ -170,7 +172,10 @@ new Vue({
             })
             var config = {};
             try { config = JSON.parse(info.config || '{}') || {}; } catch (e) { layer.msg('部署配置格式异常，请重新填写', {icon: 2}); }
-            if (config._verify_tls) this.verification = Object.assign({}, this.verification, config._verify_tls);
+            if (config._verify_tls) {
+                this.verification = Object.assign({}, this.verification, config._verify_tls);
+                this.verificationTargets = (config._verify_tls.targets || []).map(function(t){return t.host + ':' + t.port + (t.address ? '@' + t.address : '');}).join('\n');
+            }
             this.inputs = typeList[this.set.type].taskinputs;
             this.note = typeList[this.set.type].tasknote;
             $.each(this.inputs, (name, item) => {
@@ -221,10 +226,10 @@ new Vue({
                     this.config[key] = this.trim(this.config[key]);
                 }
             })
-            if (this.verification.enabled && !this.trim(this.verification.host)) {
+            if (this.verification.enabled && !this.trim(this.verification.host) && !this.trim(this.verificationTargets)) {
                 layer.msg('请填写验收站点域名', {icon: 2}); return false;
             }
-            this.config._verify_tls = Object.assign({}, this.verification, {host: this.trim(this.verification.host)});
+            this.config._verify_tls = Object.assign({}, this.verification, {host: this.trim(this.verification.host), targets: this.trim(this.verificationTargets)});
             this.set.config = JSON.stringify(this.config);
             var ii = layer.load(2, {shade:[0.1,'#fff']});
             $.ajax({

@@ -74,6 +74,7 @@ class DnsChangeService
             }
             if ($action === 'add' || $action === 'update') {
                 RecordGuard::validateRecord($operation);
+                if ($operation['type'] === 'ALIAS' && !DnsHelper::supportsRecordType($this->table('account')->where('id', $domain['aid'])->value('type'), 'ALIAS')) throw new RuntimeException('当前DNS提供商不支持ALIAS记录');
                 if (self::protectedRecord(['Name' => $operation['name'], 'Type' => $operation['type']])) throw new RuntimeException('根域名NS/SOA记录不支持通过变更预览修改');
                 $operation = array_intersect_key($operation, array_flip(['action', 'recordid', 'name', 'type', 'value', 'line', 'ttl', 'mx', 'weight', 'remark']));
                 $operation += ['line' => $before['Line'] ?? 'default', 'ttl' => $before['TTL'] ?? 600, 'mx' => $before['MX'] ?? 1, 'weight' => $before['Weight'] ?? null, 'remark' => $before['Remark'] ?? null];
@@ -145,9 +146,13 @@ class DnsChangeService
         if (($plan['actor'] ?? '') !== $actor || ($plan['domain'] ?? '') !== self::domainIdentity($domain) || empty($plan['changes']) || count($plan['changes']) > RecordGuard::MAX_BATCH) throw new RuntimeException('待执行变更不属于当前用户或域名');
         $lock = self::lock($domain);
         try {
+            foreach ($plan['changes'] as $change) {
+                if (($change['operation']['type'] ?? '') === 'ALIAS' && !DnsHelper::supportsRecordType($this->table('account')->where('id', $domain['aid'])->value('type'), 'ALIAS')) throw new RuntimeException('当前DNS提供商不支持ALIAS记录，请重新预览');
+            }
             $records = RecordGuard::all($dns, $domain['name']);
             if (!hash_equals($plan['fingerprint'], RecordGuard::fingerprint($records))) throw new RuntimeException('DNS记录在预览后发生变化，请重新预览');
             $snapshot = $this->snapshot($domain, $dns, '变更执行前自动快照', $records);
+            if ($dns instanceof \app\lib\AtomicDns) return $this->applyAtomicPlan($domain,$dns,$plan,$records,$snapshot,$checkpoint);
             $results = [];
             $completed = 0;
             $expectedFingerprint = RecordGuard::fingerprint($records);
@@ -167,6 +172,7 @@ class DnsChangeService
                     $records = RecordGuard::all($dns, $domain['name']);
                     self::assertOutcome($current, $records, $op, $change['before'], $dns instanceof \app\lib\dns\powerdns);
                     if ($op['action'] === 'update') \app\lib\AutomaticDnsTarget::synchronize($dns, $domain, (string)$op['recordid'], $op, $records, $this->connection);
+                    if (function_exists('config_get') && config_get('dns_watch_enabled','0') === '1') DriftService::managed($domain, $current, $records);
                     $expectedFingerprint = RecordGuard::fingerprint($records);
                     $results[] = ['index' => $index, 'success' => true];
                     $completed++;
@@ -179,6 +185,44 @@ class DnsChangeService
             $remaining = array_slice($plan['changes'], $completed);
             return ['complete' => !$remaining, 'snapshot_id' => $snapshot, 'results' => $results, 'remaining' => count($remaining), 'remaining_changes' => $remaining, 'fingerprint' => $expectedFingerprint];
         } finally { flock($lock, LOCK_UN); fclose($lock); }
+    }
+
+    private function applyAtomicPlan(array $domain, object $dns, array $plan, array $original, int $snapshot, ?callable $checkpoint): array
+    {
+        $ops=[];$records=$original;$results=[];$committed=false;
+        try {
+            $dns->beginAtomicBatch();
+            if (RecordGuard::fingerprint(RecordGuard::all($dns,$domain['name']))!==RecordGuard::fingerprint($original)) throw new RuntimeException('批量事务开始前DNS记录已改变，请重新预览');
+            foreach ($plan['changes'] as $change) {
+                $current=RecordGuard::all($dns,$domain['name']);
+                $op=$change['operation'];
+                if ($op['action']!=='add') {
+                    $matches=array_values(array_filter($current,fn($r)=>RecordGuard::canonical($r)===$change['before']));
+                    if(count($matches)!==1)throw new RuntimeException('无法唯一定位批量记录，未提交变更');
+                    $op['recordid']=$matches[0]['RecordId'];
+                }
+                $ok=self::execute($dns,$op);
+                if ($ok===false || $ok===null) throw new RuntimeException('批量校验失败：'.$dns->getError());
+                $records=RecordGuard::all($dns,$domain['name']);
+                self::assertOutcome($current,$records,$op,$change['before'],$dns instanceof \app\lib\dns\powerdns);
+                $ops[]=$op;
+            }
+            // Reauthorize/cancel before the single indivisible remote transaction.
+            if ($checkpoint) $checkpoint(['remaining_changes'=>$plan['changes'],'fingerprint'=>RecordGuard::fingerprint($original),'completed'=>0,'snapshot_id'=>$snapshot,'atomic_ready'=>true]);
+            if (!$dns->commitAtomicBatch()) throw new RuntimeException('平台批量提交失败，请核对远端状态：'.$dns->getError());
+            $committed=true;
+            $actual=RecordGuard::all($dns,$domain['name']);
+            if (RecordGuard::fingerprint($actual)!==RecordGuard::fingerprint($records)) throw new RuntimeException('批量提交后状态与预览不一致，请检查快照');
+            foreach ($ops as $op) if ($op['action']==='update') \app\lib\AutomaticDnsTarget::synchronize($dns,$domain,(string)$op['recordid'],$op,$actual,$this->connection);
+            if (function_exists('config_get') && config_get('dns_watch_enabled','0')==='1') DriftService::managed($domain,$original,$actual);
+            foreach ($ops as $index=>$op) $results[]=['index'=>$index,'success'=>true];
+            $fingerprint=RecordGuard::fingerprint($actual);
+            if ($checkpoint) $checkpoint(['remaining_changes'=>[],'fingerprint'=>$fingerprint,'completed'=>count($ops),'snapshot_id'=>$snapshot]);
+            return ['complete'=>true,'snapshot_id'=>$snapshot,'results'=>$results,'remaining'=>0,'remaining_changes'=>[],'fingerprint'=>$fingerprint];
+        } catch (\Throwable $e) {
+            $dns->cancelAtomicBatch();
+            return ['complete'=>false,'snapshot_id'=>$snapshot,'results'=>[['index'=>0,'success'=>false,'message'=>mb_substr(($committed?'平台已提交，后续核对失败：':'').$e->getMessage(),0,500)]],'remaining'=>count($plan['changes']),'remaining_changes'=>$plan['changes'],'fingerprint'=>RecordGuard::fingerprint($original)];
+        }
     }
 
     private static function assertOutcome(array $before, array $after, array $op, ?array $original, bool $powerDns = false): void
@@ -207,7 +251,7 @@ class DnsChangeService
                 if ($powerDns && $key === 'Value' && ($op['type'] ?? '') === 'TXT' && is_string($value)) {
                     $wire = str_starts_with($value, '"') ? $value : '"' . $value . '"';
                     if ($actual !== $wire) $matches = false;
-                } elseif (in_array($key, ['Value', 'Name'], true) && in_array($op['type'] ?? ($original['Type'] ?? ''), ['CNAME', 'NS', 'MX', 'PTR'], true) && is_string($actual) && is_string($value)) {
+                } elseif (in_array($key, ['Value', 'Name'], true) && in_array($op['type'] ?? ($original['Type'] ?? ''), ['CNAME', 'NS', 'MX', 'PTR', 'ALIAS'], true) && is_string($actual) && is_string($value)) {
                     if (strcasecmp(rtrim($actual, '.'), rtrim($value, '.')) !== 0) $matches = false;
                 } elseif (is_array($actual) || is_array($value)) { if ($actual !== $value) $matches = false; }
                 elseif ((string)$actual !== (string)$value) $matches = false;

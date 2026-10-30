@@ -37,44 +37,14 @@ class lucky implements DeployInterface
             throw new Exception('获取证书列表失败：' . $e->getMessage());
         }
 
-        $success = 0;
-        $errmsg = null;
-        if (!empty($data['list'])) {
-            foreach ($data['list'] as $row) {
-                if (empty($row['CertsInfo']['Domains'])) continue;
-                $cert_domains = $row['CertsInfo']['Domains'];
-                $flag = false;
-                foreach ($cert_domains as $domain) {
-                    if (in_array($domain, $domains)) {
-                        $flag = true;
-                        break;
-                    }
-                }
-                if ($flag) {
-                    $params = [
-                        'Key' => $row['Key'],
-                        'CertBase64' => base64_encode($fullchain),
-                        'KeyBase64' => base64_encode($privatekey),
-                        'AddFrom' => 'file',
-                        'Enable' => true,
-                        'MappingToPath' => false,
-                        'Remark' => $row['Remark'] ?: '',
-                        'AllSyncClient' => false,
-                    ];
-                    try {
-                        $this->request('/api/ssl', $params, 'PUT');
-                        $this->log("证书ID:{$row['Key']}更新成功！");
-                        $success++;
-                    } catch (Exception $e) {
-                        $errmsg = $e->getMessage();
-                        $this->log("证书ID:{$row['Key']}更新失败：" . $errmsg);
-                    }
-                }
-            }
+        $targets = [];
+        foreach ($data['list'] ?? [] as $row) {
+            if (array_intersect($row['CertsInfo']['Domains'] ?? [], $domains)) $targets[(string)$row['Key']] = $row;
         }
-        if ($success == 0) {
-            throw new Exception($errmsg ? $errmsg : '没有要更新的证书');
-        }
+        \app\lib\DeploymentTargets::run($fullchain, $targets, $info, function ($row) use ($fullchain, $privatekey) {
+            $this->request('/api/ssl', ['Key'=>$row['Key'], 'CertBase64'=>base64_encode($fullchain), 'KeyBase64'=>base64_encode($privatekey), 'AddFrom'=>'file', 'Enable'=>true, 'MappingToPath'=>false, 'Remark'=>$row['Remark'] ?? '', 'AllSyncClient'=>false], 'PUT');
+            $this->log("证书ID:{$row['Key']}更新成功！");
+        }, $config['_checkpoint'] ?? null, $config['_redact_error'] ?? null);
     }
 
     public function setLogger($func)

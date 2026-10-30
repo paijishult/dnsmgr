@@ -45,7 +45,20 @@ try {
     }
     requests.push({url:p,method:req.method(),csrf:req.headers()['x-csrf-token']||null});
     let data={code:0,msg:'fixture',total:1,rows:[row],data:[]};
-    if(p.startsWith('/record/snapshot/'))data={code:0,msg:'快照创建成功',snapshot_id:901};
+    if(p==='/operations/data') {
+     const panel=new URLSearchParams(req.postData()||'').get('panel');
+     const dangerous='fixture <img src=x onerror="window.__xss=1">';
+     const panels={
+      tasks:[{kind:'monitor',kind_name:'容灾监控',id:1,name:dangerous,status:'正常',progress:null,error:dangerous,updated_at:'2026-10-25 12:00:00',next_at:'2026-10-25 12:05:00',url:'/dmonitor/task'}],
+      conflicts:[{domain:'example.com',rr:'www',tasks:[{kind:'monitor',id:1},{kind:'schedule',id:2}],message:dangerous}],
+      matrix:[{id:1,name:dangerous,expected_sha256:'a'.repeat(64),deployed_sha256:'b'.repeat(64),expires_at:'2027-01-01',targets:[{target:dangerous,status:'failed',error:dangerous}],verification:[{host:'example.com',port:443,address:'1.1.1.1',status:'failed',observed_sha256:'b'.repeat(64),error:dangerous}]}],
+      drift:[{did:1,name:'example.com',enabled:1,interval_seconds:3600,checked_at:1792886400,drifted:true,error:null,diff:{added_count:1,removed_count:1,added:[{Name:dangerous,Type:'TXT',Value:dangerous,TTL:600}],removed:[]}}],
+      credentials:[{kind:'dns',aid:1,name:dangerous,provider:'cloudflare',enabled:1,status:'failed',checked_at:1792886400,rotation_days:90,expires_at:null,rotated_at:'2026-10-01',error:dangerous}],
+      notifications:[{id:1,channel:'mail',status:-1,attempts:8,nexttime:0,error:dangerous}]
+     };
+     data={code:0,rows:panels[panel]||[],heartbeat:'2026-10-25 12:00:00'};
+    } else if(p==='/operations/op')data={code:0,msg:'操作成功'};
+    else if(p.startsWith('/record/snapshot/'))data={code:0,msg:'快照创建成功',snapshot_id:901};
     else if(p.startsWith('/record/history/data/'))data=req.postData()?.includes('snapshotid=')?{code:0,data:[row]}:{total:1,rows:[{id:901,label:'手动快照',record_count:1,addtime:'2026-10-20 10:00:00'}]};
     else if(p==='/system/qqbotbind')data={code:0,data:{message:'绑定 '+ 'f'.repeat(24)}};
     else if(p==='/batch/details')data={code:0,task,results:[{index:0,success:true},{index:1,success:false,message:task.error}]};
@@ -120,6 +133,60 @@ try {
     await page.locator('#accountform input[type=checkbox]').last().check();
     await page.locator('#verify-host').waitFor({state:'visible'});
    });
+   if(entry.name==='cert/deploy_form')await check('EasyPanel target switching and SamWaf ID',async()=>{
+    await page.locator('select[name=aid]').selectOption('3');
+    await page.locator('input[name=target][value="0"]').waitFor({state:'visible'});
+    await page.locator('input[name=name]').waitFor({state:'visible'});
+    await page.locator('input[name=type][value="1"]').check();
+    await page.locator('textarea[name=domains]').waitFor({state:'visible'});
+    await page.locator('input[name=target][value="1"]').check();
+    for(const selector of ['input[name=name]', 'input[name=type]', 'textarea[name=domains]']) {
+     if(await page.locator(selector).first().isVisible())throw new Error('website fields remain visible for the panel');
+    }
+    await page.locator('select[name=aid]').selectOption('4');
+    await page.locator('input[name=id]').waitFor({state:'visible'});
+    if(await page.locator('input[name=id]').evaluate(el=>el.required))throw new Error('new SamWaf upload requires an ID');
+   });
+   if(entry.name==='domain/record')await check('ALIAS options and special record IDs in clipboard',async()=>{
+    if(await page.locator('option[value=ALIAS]').count()!==3)throw new Error('ALIAS missing from record forms or filter');
+    const copied=await page.evaluate(()=>{
+     const original=document.execCommand,wrap=document.createElement('div');let value;
+     wrap.innerHTML='<span id="record-value-0_[]:." data-value="target.example.net."></span><a><i class="fa fa-copy"></i></a>';document.body.appendChild(wrap);
+     document.execCommand=()=>{value=document.activeElement.value;return true;};
+     try {copyToClipboard(null,'#record-value-0_[]:.');return value;}
+     finally {document.execCommand=original;wrap.remove();}
+    });
+    if(copied!=='target.example.net.')throw new Error('record ID was interpreted as a CSS selector');
+   });
+   if(['domain/batchadd2','domain/batchedit'].includes(entry.name))await check('ALIAS offered only for supported selected providers',async()=>{
+    for(const [providers,allowed] of [[['aliyun','powerdns'],true],[['aliyun','cloudflare'],false],[[],false]]) {
+     await page.evaluate(async providers=>{const app=document.querySelector('#app').__vue__;app.domainList=providers.map((type,i)=>({id:i+1,type,name:'example.com',icon:'aliyun.png',result:''}));await app.$nextTick();},providers);
+     if((await page.locator('option[value=ALIAS]').count()>0)!==allowed)throw new Error('incorrect ALIAS capability for '+providers);
+    }
+   });
+   if(entry.name==='cloudflare/hostnames')await check('async TXT batches keep each selected DNS account',async()=>{
+    await page.evaluate(()=>{
+     const originalResolve=resolveTxtTargets,originalSubmit=submitBatchTxtRecord;
+     try {
+      for(const [dataName,prefix,run] of [['batchHostnameTxtData','txtDnsProvider_',confirmBatchHostnameTxt],['batchCertTxtData','certDnsProvider_',confirmBatchCertTxt]]) {
+       const pending=[],submitted=[],nodes=[];
+       window[dataName]={};
+       for(const [i,id] of [11,22].entries()) {
+        const domain='domain'+i+'.example.com',name='_validation.'+domain;
+        const select=document.createElement('select');select.id=prefix+i;select.innerHTML='<option value="'+id+'">fixture</option>';document.body.appendChild(select);nodes.push(select);
+        window[dataName][domain]={items:[{row:{hostname:domain},txtName:name,txtValue:'value'+i}],targets:[{domain_id:id}]};
+       }
+       resolveTxtTargets=(name,value,callback)=>pending.push({name,callback});
+       submitBatchTxtRecord=(name,value,target,remark,callback)=>{submitted.push([name,target.domain_id]);callback(true);};
+       run();
+       if(pending.length!==2)throw new Error('TXT resolution did not start for both domains');
+       pending.reverse().forEach(({name,callback})=>callback([{domain_id:11},{domain_id:22}]));
+       if(JSON.stringify(submitted)!==JSON.stringify([['_validation.domain1.example.com',22],['_validation.domain0.example.com',11]]))throw new Error('async callback reused another domain selection');
+       nodes.forEach(node=>node.remove());window[dataName]={};
+      }
+     } finally {resolveTxtTargets=originalResolve;submitBatchTxtRecord=originalSubmit;layer.closeAll();}
+    });
+   });
    if(entry.name==='index/setpwd')await check('TOTP disable credentials',async()=>{
     await page.evaluate(()=>close_totp());await page.locator('#totp-close-form').waitFor({state:'visible'});
     if(await page.locator('#totp-close-form [name=password]').count()!==1||await page.locator('#totp-close-form [name=code]').count()!==1)throw new Error('missing credentials');
@@ -144,6 +211,28 @@ try {
     await page.waitForTimeout(100);
     if(requests.filter(r=>r.url==='/batch/enqueue').length!==1||requests.some(r=>r.url.startsWith('/record/apply/')))throw new Error('preview token reused by UI');
     await page.locator('#detailModal [data-dismiss="modal"]').first().click();
+   });
+   if(entry.name==='operations/index')await check('operations tabs, actions and escaped provider data',async()=>{
+    await page.locator('#opsTable tbody tr').first().waitFor();
+    await page.locator('#opsTable button').filter({hasText:'停用'}).click();
+    await page.waitForResponse(r=>new URL(r.url()).pathname==='/operations/data');
+    for(const tab of ['conflicts','matrix','drift','credentials','notifications']) {
+     const response=page.waitForResponse(r=>new URL(r.url()).pathname==='/operations/data');
+     await page.locator('[data-panel="'+tab+'"]').click();await response;
+     await page.waitForTimeout(50);
+     if(tab==='matrix'||tab==='drift') {
+      await page.locator('#opsTable button').first().click();await page.locator('#opsDetails').waitFor({state:'visible'});
+      if(await page.locator('#opsDetails img[onerror]').count())throw new Error('unescaped detail');
+      await page.locator('#opsDetails [data-dismiss="modal"]').first().click();await page.locator('#opsDetails').waitFor({state:'hidden'});
+     }
+     if(tab==='credentials') {
+      await page.locator('#opsTable button').filter({hasText:'设置'}).click();await page.locator('#credentialModal').waitFor({state:'visible'});
+      await page.locator('#credentialDays').fill('120');await page.locator('#credentialForm button[type=submit]').click();await page.locator('#credentialModal').waitFor({state:'hidden'});
+     }
+     if(tab==='notifications') {await page.locator('#opsTable button').filter({hasText:'重试'}).click();await page.waitForTimeout(50);}
+    }
+    if(await page.locator('#opsTable img[onerror]').count())throw new Error('provider output rendered as HTML');
+    if(!requests.some(r=>r.url==='/operations/op'&&r.method==='POST'&&r.csrf))throw new Error('operations missing native CSRF token');
    });
    if(entry.name==='batch/index')await check('batch task details and actions',async()=>{
     if(!await page.locator('.panel-body').first().innerText().then(text=>text.includes('快照在哪里')&&text.includes('批量任务的作用')))throw new Error('missing feature explanation');

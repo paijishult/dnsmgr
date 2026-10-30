@@ -2,12 +2,9 @@
 
 namespace app\utils;
 
-use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
-
 class CheckUtils
 {
-    public static function curl($url, $timeout, $ip = null, $proxy = false)
+    public static function curl($url, $timeout, $ip = null, $proxy = false, array $policy = [])
     {
         $status = true;
         $errmsg = null;
@@ -24,66 +21,76 @@ class CheckUtils
             if (!filter_var($ip, FILTER_VALIDATE_IP)) {
                 $ip = gethostbyname($ip);
             }
+            if (!filter_var($ip, FILTER_VALIDATE_IP)) return ['status'=>false,'errmsg'=>'主记录目标DNS解析失败','usetime'=>0];
             if (!empty($ip) && filter_var($ip, FILTER_VALIDATE_IP)) {
-                $port = $urlarr['port'] ?? ($urlarr['scheme'] == 'https' ? 443 : 80);
-                $resolve = $urlarr['host'] . ':' . $port . ':' . $ip;
+                $port = $urlarr['port'] ?? (strtolower($urlarr['scheme'] ?? '') === 'https' ? 443 : 80);
+                $resolve = $urlarr['host'] . ':' . $port . ':' . (str_contains($ip, ':') ? '[' . $ip . ']' : $ip);
+                // CONNECT_TO also pins HTTP/SOCKS proxy tunnels and a redirect
+                // to another port on the same hostname, while preserving TLS SNI.
+                $connectTo = $urlarr['host'] . '::' . (str_contains($ip, ':') ? '[' . $ip . ']' : $ip) . ':';
             }
         }
 
+        // Use cURL directly: Guzzle's streaming handler can ignore CURLOPT_RESOLVE,
+        // which would probe public DNS instead of the configured primary server.
+        $body = '';
+        $bounded = false;
+        $handle = curl_init($url);
+        $milliseconds = max(1, (int)ceil((float)$timeout * 1000));
         $options = [
-            'timeout' => $timeout,
-            'connect_timeout' => $timeout,
-            'verify' => false,
-            'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
-            ],
-            'http_errors' => false // 不抛出异常
+            CURLOPT_RETURNTRANSFER => false,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS => 5,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+            CURLOPT_CONNECTTIMEOUT_MS => $milliseconds,
+            CURLOPT_TIMEOUT_MS => $milliseconds,
+            CURLOPT_NOSIGNAL => true,
+            CURLOPT_SSL_VERIFYPEER => $policy['verify_tls'] ?? true,
+            CURLOPT_SSL_VERIFYHOST => ($policy['verify_tls'] ?? true) ? 2 : 0,
+            CURLOPT_PROXY => '',
+            CURLOPT_USERAGENT => 'DNSMgr health check',
+            CURLOPT_WRITEFUNCTION => static function ($ch, $chunk) use (&$body, &$bounded) {
+                $remaining = 1048576 - strlen($body);
+                $body .= substr($chunk, 0, $remaining);
+                if (strlen($chunk) > $remaining) { $bounded = true; return 0; }
+                return strlen($chunk);
+            },
         ];
-        // 处理解析
         if (!empty($resolve)) {
-            $options['curl'] = [
-                CURLOPT_DNS_USE_GLOBAL_CACHE => false,
-                CURLOPT_RESOLVE => [$resolve]
-            ];
+            $options[CURLOPT_RESOLVE] = [$resolve];
+            $options[CURLOPT_CONNECT_TO] = [$connectTo];
         }
-        // 处理代理
         if ($proxy) {
-            $proxy_server = config_get('proxy_server');
-            $proxy_port = intval(config_get('proxy_port'));
-            $proxy_userpwd = config_get('proxy_user').':'.config_get('proxy_pwd');
-            $proxy_type = config_get('proxy_type');
-
-            if (!empty($proxy_server) && !empty($proxy_port)) {
-                match ($proxy_type) {
-                    'https' => $proxy_string = 'https://',
-                    'sock4' => $proxy_string = 'socks4://',
-                    'sock5' => $proxy_string = 'socks5://',
-                    'sock5h' => $proxy_string = 'socks5h://',
-                    default => $proxy_string = 'http://',
+            $proxyServer = config_get('proxy_server');
+            $proxyPort = (int)config_get('proxy_port');
+            if ($proxyServer && $proxyPort) {
+                $scheme = match (config_get('proxy_type')) {
+                    'https' => 'https', 'sock4' => 'socks4',
+                    'sock5' => 'socks5', 'sock5h' => 'socks5h', default => 'http',
                 };
-
-                if ($proxy_userpwd != ':') {
-                    $proxy_string .= $proxy_userpwd . '@';
-                }
-
-                $proxy_string .= $proxy_server . ':' . $proxy_port;
-                $options['proxy'] = $proxy_string;
+                $options[CURLOPT_PROXY] = $scheme . '://' . $proxyServer . ':' . $proxyPort;
+                $options[CURLOPT_PROXYUSERPWD] = config_get('proxy_user') . ':' . config_get('proxy_pwd');
             }
         }
-
         try {
-            $client = new Client();
-            $response = $client->request('GET', $url, $options);
-            $httpcode = $response->getStatusCode();
-
-            if ($httpcode < 200 || $httpcode >= 400) {
+            curl_setopt_array($handle, $options);
+            $ok = curl_exec($handle);
+            $httpcode = (int)curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
+            if ($ok === false && !($bounded && curl_errno($handle) === CURLE_WRITE_ERROR)) {
+                $status = false;
+                $errmsg = 'HTTP检测失败：' . curl_error($handle);
+            } elseif (!empty($policy['statuses']) ? !in_array($httpcode, $policy['statuses'], true) : ($httpcode < 200 || $httpcode >= 400)) {
                 $status = false;
                 $errmsg = 'http_code=' . $httpcode;
+            } elseif (($policy['contains'] ?? '') !== '' && !str_contains($body, $policy['contains'])) {
+                $status = false;
+                $errmsg = '响应内容不符合断言（检查前1MB）';
             }
-        } catch (GuzzleException $e) {
+        } catch (\Throwable $e) {
             $status = false;
-            $errmsg = guzzle_error($e);
-        }
+            $errmsg = 'HTTP检测失败：' . $e->getMessage();
+        } finally { curl_close($handle); }
 
         $usetime = round((microtime(true) - $start) * 1000);
         return ['status' => $status, 'errmsg' => $errmsg, 'usetime' => $usetime];

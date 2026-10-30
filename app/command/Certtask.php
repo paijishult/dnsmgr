@@ -12,10 +12,6 @@ use think\console\input\Option;
 use think\console\Output;
 use think\facade\Db;
 use think\facade\Config;
-use app\service\OptimizeService;
-use app\service\CertTaskService;
-use app\service\ExpireNoticeService;
-use app\service\ScheduleService;
 
 class Certtask extends Command
 {
@@ -31,15 +27,7 @@ class Certtask extends Command
         $res = Db::name('config')->cache('configs', 0)->column('value', 'key');
         Config::set($res, 'sys');
         \app\service\FeatureMigrationService::ensure();
-        (new \app\service\BatchTaskService())->execute();
-        \app\service\CertDnsService::retryCleanup(static function ($line) { echo $line . PHP_EOL; });
-
-        (new ScheduleService())->execute();
-        $res = (new OptimizeService())->execute();
-        if (!$res) {
-            (new CertTaskService())->execute();
-            (new ExpireNoticeService())->task();
-        }
+        \app\service\MaintenanceService::execute();
         echo 'done'.PHP_EOL;
     }
 }

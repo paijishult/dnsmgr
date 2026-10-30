@@ -18,6 +18,8 @@ namespace think\facade {
 namespace app { class BaseController { protected $request; public function __construct() { $this->request=\request(); } protected function alert($type,$msg='') { return ['code'=>-1,'msg'=>$msg]; } } }
 namespace app\lib { class DnsHelper { public static $line_name=['aliyun'=>['DEF'=>'default']]; public static function getModel(...$args) { return $GLOBALS['dns_controller_model']; } } }
 namespace {
+    require_once __DIR__.'/../app/lib/AtomicDns.php';
+    require_once __DIR__.'/../app/lib/ProviderReadRetry.php';
     require_once __DIR__ . '/../app/lib/RecordGuard.php';
     require_once __DIR__ . '/../app/lib/AutomaticDnsTarget.php';
     require_once __DIR__ . '/../app/lib/GuardedDns.php';
