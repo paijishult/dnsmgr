@@ -1,0 +1,106 @@
+name: NGINX validation
+
+on:
+  push:
+    branches: [codex/nginx-1-31-9-validation]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    name: Verify image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build native image for validation
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: .github/docker/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          tags: dnsmgr-smoke:${{ github.sha }}
+      - name: Check container startup and installer
+        shell: bash
+        env:
+          IMAGE_TAG: dnsmgr-smoke:${{ github.sha }}
+        run: |
+          test "$(docker inspect --format '{{.Architecture}}' "$IMAGE_TAG")" = '${{ matrix.arch }}'
+          docker run --detach --name dnsmgr-smoke --publish 127.0.0.1:18081:80 "$IMAGE_TAG"
+          nginx_apk_version=$(sed -n 's/^ARG NGINX_APK_VERSION=//p' .github/docker/Dockerfile)
+          test -n "$nginx_apk_version"
+          test "$(docker exec dnsmgr-smoke apk info -v nginx | tr -d '\r')" = "nginx-$nginx_apk_version"
+          test "$(docker exec dnsmgr-smoke nginx -v 2>&1 | tr -d '\r')" = "nginx version: nginx/${nginx_apk_version%-r*}"
+          docker exec dnsmgr-smoke nginx -t
+          docker exec -i dnsmgr-smoke php < .github/docker/verify-runtime.php
+          for attempt in $(seq 1 30); do
+            if [ "$(docker inspect --format '{{.State.Health.Status}}' dnsmgr-smoke)" = healthy ]; then
+              break
+            fi
+            sleep 2
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' dnsmgr-smoke)" = healthy
+          # Verify the web SAPI too; the probe exists only in this disposable container.
+          probe="dnsmgr-runtime-${GITHUB_RUN_ID}.php"
+          body_probe="dnsmgr-body-${GITHUB_RUN_ID}.php"
+          trap 'docker exec dnsmgr-smoke rm -f "/app/www/public/$probe" "/app/www/public/$body_probe"' EXIT
+          docker cp .github/docker/verify-runtime.php "dnsmgr-smoke:/app/www/public/$probe"
+          curl --fail-with-body --silent --show-error --max-time 20 "http://127.0.0.1:18081/$probe" \
+            | tee "$RUNNER_TEMP/dnsmgr-runtime.json"
+          jq --exit-status '.php == "8.3.36" and .sapi == "fpm-fcgi" and (.checks | index("application-signature") != null)' "$RUNNER_TEMP/dnsmgr-runtime.json"
+          docker exec dnsmgr-smoke rm "/app/www/public/$probe"
+          # A large request exercises nginx's writable client-body temporary directory.
+          printf '%s\n' '<?php echo hash("sha256", file_get_contents("php://input"));' > "$RUNNER_TEMP/dnsmgr-body.php"
+          docker cp "$RUNNER_TEMP/dnsmgr-body.php" "dnsmgr-smoke:/app/www/public/$body_probe"
+          python3 -c 'import sys; sys.stdout.buffer.write(b"x" * 1048576)' > "$RUNNER_TEMP/dnsmgr-body.bin"
+          expected_body_hash=$(sha256sum "$RUNNER_TEMP/dnsmgr-body.bin" | cut -d ' ' -f 1)
+          actual_body_hash=$(curl --fail --silent --show-error --max-time 20 --data-binary @"$RUNNER_TEMP/dnsmgr-body.bin" "http://127.0.0.1:18081/$body_probe")
+          test "$actual_body_hash" = "$expected_body_hash"
+          docker exec dnsmgr-smoke rm "/app/www/public/$body_probe"
+          trap - EXIT
+          curl --fail --silent --show-error --location --max-time 20 http://127.0.0.1:18081/install > "$RUNNER_TEMP/dnsmgr-install.html"
+          test -s "$RUNNER_TEMP/dnsmgr-install.html"
+          grep -q '安装' "$RUNNER_TEMP/dnsmgr-install.html"
+          for program in php-fpm nginx; do
+            before=$(docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf pid "$program" | tr -d '\r')
+            test "$before" -gt 1
+            docker exec dnsmgr-smoke kill -KILL "$before"
+            recovered=false
+            for attempt in $(seq 1 20); do
+              after=$(docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf pid "$program" | tr -d '\r')
+              if [ "$after" -gt 1 ] && [ "$after" != "$before" ] && curl --fail --silent --max-time 5 http://127.0.0.1:18081/install > /dev/null; then
+                recovered=true
+                break
+              fi
+              sleep 1
+            done
+            test "$recovered" = true
+            sleep 3
+            test "$(docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf pid "$program" | tr -d '\r')" = "$after"
+            docker exec dnsmgr-smoke supervisorctl -c /etc/supervisor/conf.d/supervisord.conf status "$program" | grep -q RUNNING
+            curl --fail --silent --show-error --max-time 10 http://127.0.0.1:18081/install > /dev/null
+          done
+          test "$(docker exec dnsmgr-smoke cat /proc/1/comm | tr -d '\r')" = supervisord
+          docker stop --time 15 dnsmgr-smoke
+          test "$(docker inspect --format '{{.State.ExitCode}}' dnsmgr-smoke)" = 0
+
+      - name: Clean up test container
+        if: always()
+        run: |
+          docker logs dnsmgr-smoke 2>&1 || true
+          docker rm --force dnsmgr-smoke 2>/dev/null || true
+
