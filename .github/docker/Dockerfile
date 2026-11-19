@@ -6,13 +6,13 @@ WORKDIR /app/www
 ARG PHP_APK_VERSION=8.3.36-r0
 ARG SWOOLE_APK_VERSION=6.2.2-r0
 ARG SSH2_APK_VERSION=1.5.0-r0
+ARG NGINX_APK_VERSION=1.31.9-r1
 ENV PHP_INI_DIR=/etc/php83
 
 RUN set -eux; \
     apk add --no-cache \
       bash \
       curl \
-      nginx \
       ca-certificates \
       openssl \
       supervisor \
@@ -48,13 +48,21 @@ RUN set -eux; \
       php83-zip=${PHP_APK_VERSION} \
       php83-pecl-swoole=${SWOOLE_APK_VERSION} \
       php83-pecl-ssh2=${SSH2_APK_VERSION}; \
+    curl --fail --silent --show-error --location --retry 3 \
+      https://nginx.org/keys/nginx_signing.rsa.pub -o /tmp/nginx_signing.rsa.pub; \
+    printf '%s  %s\n' \
+      'e09fa32f0a0eab2b879ccbbc4d0e4fb9751486eedda75e35fac65802cc9faa266425edf83e261137a2f4d16281ce2c1a5f4502930fe75154723da014214f0655' \
+      /tmp/nginx_signing.rsa.pub | sha512sum -c -; \
+    mv /tmp/nginx_signing.rsa.pub /etc/apk/keys/; \
+    printf '%s\n' '@nginx https://nginx.org/packages/mainline/alpine/v3.24/main' >> /etc/apk/repositories; \
+    apk add --no-cache "nginx@nginx=${NGINX_APK_VERSION}"; \
     ln -sf /usr/bin/php83 /usr/local/bin/php; \
     php --ri swoole; \
     php --version; \
     rm -rf /var/cache/apk/* /tmp/*
 
 # Remove default server definition
-RUN rm -f /etc/nginx/http.d/default.conf
+RUN rm -f /etc/nginx/http.d/default.conf /etc/nginx/conf.d/default.conf
 
 # Configure nginx - http
 COPY .github/docker/config/nginx.conf /etc/nginx/nginx.conf
@@ -81,7 +89,9 @@ RUN composer dump-autoload -d /usr/src/www --no-dev --optimize --no-interaction 
     && rm /tmp/dnsmgr-verify-runtime.php \
     && rm -rf /usr/src/www/.github /usr/src/www/.git /usr/src/www/tests /usr/local/bin/composer
 
-RUN adduser -D -s /sbin/nologin -g www www && chown -R www:www /usr/src/www /var/lib/nginx /var/log/nginx
+RUN adduser -D -s /sbin/nologin -g www www \
+    && mkdir -p /var/lib/nginx /var/cache/nginx \
+    && chown -R www:www /usr/src/www /var/lib/nginx /var/cache/nginx /var/log/nginx
 
 # crontab
 RUN echo "* * * * * cd /app/www && /usr/local/bin/php think certtask" | crontab -u www -

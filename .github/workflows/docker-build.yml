@@ -102,6 +102,10 @@ jobs:
         run: |
           test "$(docker inspect --format '{{.Architecture}}' "$IMAGE_TAG")" = '${{ matrix.arch }}'
           docker run --detach --name dnsmgr-smoke --publish 127.0.0.1:18081:80 "$IMAGE_TAG"
+          nginx_apk_version=$(sed -n 's/^ARG NGINX_APK_VERSION=//p' .github/docker/Dockerfile)
+          test -n "$nginx_apk_version"
+          test "$(docker exec dnsmgr-smoke apk info -v nginx | tr -d '\r')" = "nginx-$nginx_apk_version"
+          test "$(docker exec dnsmgr-smoke nginx -v 2>&1 | tr -d '\r')" = "nginx version: nginx/${nginx_apk_version%-r*}"
           docker exec dnsmgr-smoke nginx -t
           docker exec -i dnsmgr-smoke php < .github/docker/verify-runtime.php
           for attempt in $(seq 1 30); do
@@ -113,12 +117,21 @@ jobs:
           test "$(docker inspect --format '{{.State.Health.Status}}' dnsmgr-smoke)" = healthy
           # Verify the web SAPI too; the probe exists only in this disposable container.
           probe="dnsmgr-runtime-${GITHUB_RUN_ID}.php"
-          trap 'docker exec dnsmgr-smoke rm -f "/app/www/public/$probe"' EXIT
+          body_probe="dnsmgr-body-${GITHUB_RUN_ID}.php"
+          trap 'docker exec dnsmgr-smoke rm -f "/app/www/public/$probe" "/app/www/public/$body_probe"' EXIT
           docker cp .github/docker/verify-runtime.php "dnsmgr-smoke:/app/www/public/$probe"
           curl --fail-with-body --silent --show-error --max-time 20 "http://127.0.0.1:18081/$probe" \
             | tee "$RUNNER_TEMP/dnsmgr-runtime.json"
           jq --exit-status '.php == "8.3.36" and .sapi == "fpm-fcgi" and (.checks | index("application-signature") != null)' "$RUNNER_TEMP/dnsmgr-runtime.json"
           docker exec dnsmgr-smoke rm "/app/www/public/$probe"
+          # A large request exercises nginx's writable client-body temporary directory.
+          printf '%s\n' '<?php echo hash("sha256", file_get_contents("php://input"));' > "$RUNNER_TEMP/dnsmgr-body.php"
+          docker cp "$RUNNER_TEMP/dnsmgr-body.php" "dnsmgr-smoke:/app/www/public/$body_probe"
+          python3 -c 'import sys; sys.stdout.buffer.write(b"x" * 1048576)' > "$RUNNER_TEMP/dnsmgr-body.bin"
+          expected_body_hash=$(sha256sum "$RUNNER_TEMP/dnsmgr-body.bin" | cut -d ' ' -f 1)
+          actual_body_hash=$(curl --fail --silent --show-error --max-time 20 --data-binary @"$RUNNER_TEMP/dnsmgr-body.bin" "http://127.0.0.1:18081/$body_probe")
+          test "$actual_body_hash" = "$expected_body_hash"
+          docker exec dnsmgr-smoke rm "/app/www/public/$body_probe"
           trap - EXIT
           curl --fail --silent --show-error --location --max-time 20 http://127.0.0.1:18081/install > "$RUNNER_TEMP/dnsmgr-install.html"
           test -s "$RUNNER_TEMP/dnsmgr-install.html"
