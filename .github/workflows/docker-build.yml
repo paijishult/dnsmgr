@@ -104,7 +104,7 @@ jobs:
           docker run --detach --name dnsmgr-smoke --publish 127.0.0.1:18081:80 "$IMAGE_TAG"
           nginx_apk_version=$(sed -n 's/^ARG NGINX_APK_VERSION=//p' .github/docker/Dockerfile)
           test -n "$nginx_apk_version"
-          test "$(docker exec dnsmgr-smoke apk info -v nginx | tr -d '\r')" = "nginx-$nginx_apk_version"
+          test "$(docker exec dnsmgr-smoke apk query --from installed --summarize package nginx | tr -d '\r')" = "nginx-$nginx_apk_version"
           test "$(docker exec dnsmgr-smoke nginx -v 2>&1 | tr -d '\r')" = "nginx version: nginx/${nginx_apk_version%-r*}"
           docker exec dnsmgr-smoke nginx -t
           docker exec -i dnsmgr-smoke php < .github/docker/verify-runtime.php
